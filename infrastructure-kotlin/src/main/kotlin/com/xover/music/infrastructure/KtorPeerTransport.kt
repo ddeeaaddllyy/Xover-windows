@@ -159,9 +159,13 @@ class KtorPeerTransport : PeerTransportPort {
         }
     }
 
-    override fun close() {
+    override fun disconnect() {
         closeClient()
         closeServer()
+    }
+
+    override fun close() {
+        disconnect()
         scope.cancel()
     }
 

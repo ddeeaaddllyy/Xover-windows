@@ -16,6 +16,10 @@ public interface AudioPlayerPort extends AutoCloseable {
 
     void seek(Duration position);
 
+    void setVolume(double volume);
+
+    double volume();
+
     Duration currentPosition();
 
     Duration duration();

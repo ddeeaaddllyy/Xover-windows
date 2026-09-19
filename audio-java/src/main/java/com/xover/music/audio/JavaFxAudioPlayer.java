@@ -21,6 +21,7 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
     private static final AtomicBoolean TOOLKIT_STARTED = new AtomicBoolean(false);
 
     private final AtomicReference<MediaPlayer> player = new AtomicReference<>();
+    private volatile double volume = 1.0D;
     private volatile AudioPlayerListener listener = new AudioPlayerListener() {
     };
 
@@ -42,6 +43,7 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
             try {
                 Media media = new Media(mediaUri.toString());
                 MediaPlayer nextPlayer = new MediaPlayer(media);
+                nextPlayer.setVolume(volume);
                 nextPlayer.setOnReady(() -> listener.onReady(toJavaDuration(nextPlayer.getTotalDuration())));
                 nextPlayer.setOnError(() -> listener.onError("Audio engine error", nextPlayer.getError()));
                 nextPlayer.currentTimeProperty().addListener((ignored, oldValue, newValue) ->
@@ -75,6 +77,18 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
         runOnFx(() -> withPlayer(mediaPlayer ->
             mediaPlayer.seek(javafx.util.Duration.millis(safePosition.toMillis()))
         ));
+    }
+
+    @Override
+    public void setVolume(double volume) {
+        double nextVolume = Math.max(0.0D, Math.min(1.0D, volume));
+        this.volume = nextVolume;
+        runOnFx(() -> withPlayer(mediaPlayer -> mediaPlayer.setVolume(nextVolume)));
+    }
+
+    @Override
+    public double volume() {
+        return volume;
     }
 
     @Override

@@ -11,6 +11,8 @@ public interface PeerTransportPort extends AutoCloseable {
 
     void broadcast(PeerMessage message);
 
+    void disconnect();
+
     @Override
     void close();
 }

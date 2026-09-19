@@ -154,6 +154,26 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
     }
 
+    public void disconnect() {
+        stopTimeSyncLoop();
+        hostConfig = null;
+        audioPlayer.stop();
+        transport.disconnect();
+        updateState(previous -> SessionViewState.idle()
+            .withLocalVolumePercent(previous.localVolumePercent())
+            .withMessage("Disconnected")
+        );
+    }
+
+    public void setLocalVolumePercent(int volumePercent) {
+        int clampedVolume = Math.max(0, Math.min(100, volumePercent));
+        audioPlayer.setVolume(clampedVolume / 100.0D);
+        updateState(previous -> previous
+            .withLocalVolumePercent(clampedVolume)
+            .withMessage("Local volume: " + clampedVolume + "%")
+        );
+    }
+
     @Override
     public void onReady(Duration duration) {
         updateState(previous -> previous
@@ -230,9 +250,12 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     @Override
     public void close() {
         stopTimeSyncLoop();
-        transport.close();
-        audioPlayer.close();
-        scheduler.shutdownNow();
+        try {
+            transport.close();
+        } finally {
+            audioPlayer.close();
+            scheduler.shutdownNow();
+        }
     }
 
     private void loadRemoteTrack(PeerMessage message) {
