@@ -9,6 +9,7 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,7 +17,6 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -370,21 +370,45 @@ private fun TabStrip(
     selectedTab: XoverTab,
     onTabSelected: (XoverTab) -> Unit,
 ) {
-    Row(
+    val tabs = XoverTab.entries
+    val tabSpacing = 5.dp
+    val selectedIndex = tabs.indexOf(selectedTab).coerceAtLeast(0)
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(SoftLayerColor)
             .padding(5.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        XoverTab.entries.forEach { tab ->
-            TabButton(
-                tab = tab,
-                selected = tab == selectedTab,
-                onClick = { onTabSelected(tab) },
-                modifier = Modifier.weight(1f),
-            )
+        val indicatorWidth = (maxWidth - tabSpacing * (tabs.size - 1)) / tabs.size
+        val indicatorOffset by animateDpAsState(
+            targetValue = (indicatorWidth + tabSpacing) * selectedIndex,
+            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+            label = "tabIndicatorOffset",
+        )
+
+        Box(
+            modifier = Modifier
+                .offset(x = indicatorOffset)
+                .width(indicatorWidth)
+                .height(38.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(SurfaceColor),
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(tabSpacing),
+        ) {
+            tabs.forEach { tab ->
+                TabButton(
+                    tab = tab,
+                    selected = tab == selectedTab,
+                    onClick = { onTabSelected(tab) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
@@ -396,15 +420,26 @@ private fun TabButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val background by animateColorAsState(if (selected) SurfaceColor else Color.Transparent, label = "tabBackground")
     val foreground by animateColorAsState(if (selected) PrimaryText else SecondaryText, label = "tabForeground")
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val lift by animateDpAsState(
+        targetValue = if (hovered && !selected) (-1).dp else 0.dp,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "tabButtonLift",
+    )
 
     Box(
         modifier = modifier
             .height(38.dp)
+            .offset(y = lift)
             .clip(RoundedCornerShape(12.dp))
-            .background(background)
-            .clickable(onClick = onClick),
+            .hoverable(interactionSource = interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Text(tab.title, color = foreground, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
@@ -731,24 +766,19 @@ private fun PrimaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    val alpha by animateFloatAsState(if (enabled) 1f else 0.45f, label = "primaryButtonAlpha")
-    Button(
+    MotionButton(
+        text = text,
         onClick = onClick,
+        modifier = modifier,
         enabled = enabled,
-        modifier = modifier
-            .height(44.dp)
-            .alpha(alpha),
-        shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.buttonColors(
-            backgroundColor = AccentColor,
-            contentColor = Color.White,
-            disabledBackgroundColor = AccentColor.copy(alpha = 0.35f),
-            disabledContentColor = Color.White,
-        ),
-        elevation = ButtonDefaults.elevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
-    ) {
-        Text(text, fontWeight = FontWeight.SemiBold)
-    }
+        backgroundColor = AccentColor,
+        hoverBackgroundColor = AccentColor.copy(alpha = 0.92f),
+        pressedBackgroundColor = AccentColor.copy(alpha = 0.86f),
+        disabledBackgroundColor = AccentColor.copy(alpha = 0.32f),
+        contentColor = Color.White,
+        disabledContentColor = Color.White.copy(alpha = 0.72f),
+        fontWeight = FontWeight.SemiBold,
+    )
 }
 
 @Composable
@@ -758,21 +788,110 @@ private fun SoftButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    val borderAlpha by animateFloatAsState(if (enabled) 1f else 0.4f, label = "softButtonBorder")
-    OutlinedButton(
+    MotionButton(
+        text = text,
         onClick = onClick,
+        modifier = modifier,
         enabled = enabled,
-        modifier = modifier.height(44.dp),
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, BorderColor.copy(alpha = borderAlpha)),
-        colors = ButtonDefaults.outlinedButtonColors(
-            backgroundColor = Color.White.copy(alpha = 0.72f),
-            contentColor = PrimaryText,
-            disabledContentColor = SecondaryText,
-        ),
-        elevation = ButtonDefaults.elevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+        backgroundColor = Color.White.copy(alpha = 0.72f),
+        hoverBackgroundColor = Color.White.copy(alpha = 0.92f),
+        pressedBackgroundColor = Color.White.copy(alpha = 0.84f),
+        disabledBackgroundColor = Color.White.copy(alpha = 0.42f),
+        contentColor = PrimaryText,
+        disabledContentColor = SecondaryText,
+        borderColor = BorderColor,
+    )
+}
+
+@Composable
+private fun MotionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    backgroundColor: Color,
+    hoverBackgroundColor: Color,
+    pressedBackgroundColor: Color,
+    disabledBackgroundColor: Color,
+    contentColor: Color,
+    disabledContentColor: Color,
+    fontWeight: FontWeight = FontWeight.Normal,
+    borderColor: Color? = null,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val pressed by interactionSource.collectIsPressedAsState()
+    val buttonShape = RoundedCornerShape(14.dp)
+    val offsetY by animateDpAsState(
+        targetValue = when {
+            !enabled -> 0.dp
+            pressed -> 1.dp
+            hovered -> (-2).dp
+            else -> 0.dp
+        },
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "motionButtonOffset",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (enabled && pressed) 0.985f else 1f,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "motionButtonScale",
+    )
+    val background by animateColorAsState(
+        targetValue = when {
+            !enabled -> disabledBackgroundColor
+            pressed -> pressedBackgroundColor
+            hovered -> hoverBackgroundColor
+            else -> backgroundColor
+        },
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "motionButtonBackground",
+    )
+    val foreground by animateColorAsState(
+        targetValue = if (enabled) contentColor else disabledContentColor,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "motionButtonForeground",
+    )
+    val animatedBorder by animateColorAsState(
+        targetValue = borderColor?.copy(
+            alpha = when {
+                !enabled -> 0.36f
+                pressed -> 0.92f
+                hovered -> 1f
+                else -> 0.78f
+            },
+        ) ?: Color.Transparent,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "motionButtonBorder",
+    )
+
+    Box(
+        modifier = modifier
+            .height(44.dp)
+            .offset(y = offsetY)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(buttonShape)
+            .background(background)
+            .then(
+                if (borderColor != null) {
+                    Modifier.border(BorderStroke(1.dp, animatedBorder), buttonShape)
+                } else {
+                    Modifier
+                },
+            )
+            .hoverable(interactionSource = interactionSource, enabled = enabled)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(text)
+        Text(text, color = foreground, fontWeight = fontWeight)
     }
 }
 
