@@ -3,6 +3,12 @@ package com.xover.music.application.session;
 import com.xover.music.application.audio.AudioPlayerListener;
 import com.xover.music.application.audio.AudioPlayerPort;
 import com.xover.music.application.clock.Clock;
+import com.xover.music.application.error.ErrorReporter;
+import com.xover.music.application.error.InvalidTrackSourceException;
+import com.xover.music.application.error.NetworkTransportException;
+import com.xover.music.application.error.RemoteProtocolException;
+import com.xover.music.application.error.UnexpectedXoverException;
+import com.xover.music.application.error.XoverException;
 import com.xover.music.application.network.HostStartupConfig;
 import com.xover.music.application.network.PeerAddress;
 import com.xover.music.application.network.PeerMessage;
@@ -41,6 +47,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     private final Clock clock;
     private final ScheduledExecutorService scheduler;
     private final ClockSynchronizer clockSynchronizer;
+    private final ErrorReporter errorReporter;
     private final List<SessionObserver> observers = new CopyOnWriteArrayList<>();
 
     private volatile SessionViewState state = SessionViewState.idle();
@@ -52,13 +59,15 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         PeerTransportPort transport,
         Clock clock,
         ScheduledExecutorService scheduler,
-        ClockSynchronizer clockSynchronizer
+        ClockSynchronizer clockSynchronizer,
+        ErrorReporter errorReporter
     ) {
         this.audioPlayer = Objects.requireNonNull(audioPlayer, "audioPlayer");
         this.transport = Objects.requireNonNull(transport, "transport");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.clockSynchronizer = Objects.requireNonNull(clockSynchronizer, "clockSynchronizer");
+        this.errorReporter = Objects.requireNonNull(errorReporter, "errorReporter");
 
         this.audioPlayer.setListener(this);
         this.transport.setListener(this);
@@ -87,8 +96,9 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             return;
         }
 
+        HostStartupConfig config = null;
         try {
-            HostStartupConfig config = new HostStartupConfig("0.0.0.0", advertisedHost, port);
+            config = new HostStartupConfig("0.0.0.0", advertisedHost, port);
             hostConfig = config;
 
             updateState(previous -> previous
@@ -101,8 +111,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             transport.startHost(config);
             loadCurrentPlaylistTrack("Loading current track");
             broadcastPlaylist();
+        } catch (XoverException ex) {
+            fail(ex.title(), ex);
         } catch (RuntimeException ex) {
-            fail("Could not start host session", ex);
+            fail("Could not start host session", config == null ? ex : NetworkTransportException.hostStartupFailed(config, ex));
         }
     }
 
@@ -116,6 +128,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             return;
         }
 
+        PeerAddress address = null;
         try {
             hostConfig = null;
             updateState(previous -> previous
@@ -125,9 +138,12 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 .withConnectedPeers(List.of())
                 .withMessage("Connecting to " + host + ":" + port)
             );
-            transport.connect(new PeerAddress(host, port));
+            address = new PeerAddress(host, port);
+            transport.connect(address);
+        } catch (XoverException ex) {
+            fail(ex.title(), ex);
         } catch (RuntimeException ex) {
-            fail("Could not connect to host", ex);
+            fail("Could not connect to host", address == null ? ex : NetworkTransportException.connectionFailed(address, ex));
         }
     }
 
@@ -157,7 +173,12 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 loadCurrentPlaylistTrack("Loading added track");
             }
             broadcastPlaylist();
+        } catch (XoverException ex) {
+            reportRecoverable(ex.title(), ex);
+            updateState(previous -> previous.withMessage("Could not add track URL: " + ex.getMessage()));
         } catch (RuntimeException ex) {
+            XoverException failure = new UnexpectedXoverException("Could not add track URL", ex);
+            reportRecoverable("Could not add track URL", failure);
             updateState(previous -> previous.withMessage("Could not add track URL: " + ex.getMessage()));
         }
     }
@@ -384,14 +405,18 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     public void onMessage(PeerMessage message) {
         long receivedAtMillis = clock.nowMillis();
 
-        switch (message.type()) {
-            case PLAYLIST_UPDATED -> applyRemotePlaylist(message);
-            case TRACK_SELECTED -> loadRemoteTrack(message);
-            case PLAY_AT -> schedulePlay(message.positionMillis(), message.startAtHostMillis());
-            case PAUSE -> pauseFromRemote(message.positionMillis());
-            case SEEK -> seekFromRemote(message.positionMillis());
-            case TIME_SYNC_REQUEST -> respondToTimeSync(message, receivedAtMillis);
-            case TIME_SYNC_RESPONSE -> applyTimeSync(message, receivedAtMillis);
+        try {
+            switch (message.type()) {
+                case PLAYLIST_UPDATED -> applyRemotePlaylist(message);
+                case TRACK_SELECTED -> loadRemoteTrack(message);
+                case PLAY_AT -> schedulePlay(message.positionMillis(), message.startAtHostMillis());
+                case PAUSE -> pauseFromRemote(message.positionMillis());
+                case SEEK -> seekFromRemote(message.positionMillis());
+                case TIME_SYNC_REQUEST -> respondToTimeSync(message, receivedAtMillis);
+                case TIME_SYNC_RESPONSE -> applyTimeSync(message, receivedAtMillis);
+            }
+        } catch (RuntimeException ex) {
+            fail("Could not apply remote sync message", new RemoteProtocolException("Could not apply remote sync message", ex));
         }
     }
 
@@ -583,7 +608,13 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     private void startTimeSyncLoop() {
         stopTimeSyncLoop();
         timeSyncTask = scheduler.scheduleAtFixedRate(
-            () -> transport.send(PeerMessage.timeSyncRequest(clock.nowMillis())),
+            () -> {
+                try {
+                    transport.send(PeerMessage.timeSyncRequest(clock.nowMillis()));
+                } catch (RuntimeException ex) {
+                    fail("Could not send time sync request", ex);
+                }
+            },
             0L,
             TIME_SYNC_PERIOD_SECONDS,
             TimeUnit.SECONDS
@@ -600,12 +631,17 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     private URI validateTrackSource(String sourceUrl) {
         if (sourceUrl == null || sourceUrl.isBlank()) {
-            throw new IllegalArgumentException("Track URL is required");
+            throw InvalidTrackSourceException.blank();
         }
-        URI uri = URI.create(sourceUrl.trim());
+        URI uri;
+        try {
+            uri = URI.create(sourceUrl.trim());
+        } catch (IllegalArgumentException ex) {
+            throw InvalidTrackSourceException.malformed(sourceUrl, ex);
+        }
         String scheme = uri.getScheme();
         if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
-            throw new IllegalArgumentException("Track URL must start with http:// or https://");
+            throw InvalidTrackSourceException.unsupportedScheme(uri);
         }
         return uri;
     }
@@ -652,12 +688,25 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     private void fail(String message, Throwable cause) {
-        String detail = cause == null ? message : message + ": " + cause.getMessage();
+        Throwable failure = normalizeFailure(message, cause);
+        errorReporter.report(message, failure);
+        String detail = failure.getMessage() == null ? message : message + ": " + failure.getMessage();
         updateState(previous -> previous
             .withConnectionStatus(ConnectionStatus.ERROR)
             .withPlaybackStatus(PlaybackStatus.ERROR)
             .withMessage(detail)
         );
+    }
+
+    private void reportRecoverable(String message, Throwable cause) {
+        errorReporter.report(message, normalizeFailure(message, cause));
+    }
+
+    private Throwable normalizeFailure(String message, Throwable cause) {
+        if (cause instanceof XoverException) {
+            return cause;
+        }
+        return new UnexpectedXoverException(message, cause);
     }
 
     private void updateState(UnaryOperator<SessionViewState> mutation) {

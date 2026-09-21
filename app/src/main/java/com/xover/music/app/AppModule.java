@@ -3,6 +3,9 @@ package com.xover.music.app;
 import com.xover.music.application.audio.AudioPlayerPort;
 import com.xover.music.application.clock.Clock;
 import com.xover.music.application.clock.SystemClock;
+import com.xover.music.application.error.DefaultErrorReporter;
+import com.xover.music.application.error.ErrorEventSource;
+import com.xover.music.application.error.ErrorReporter;
 import com.xover.music.application.network.PeerTransportPort;
 import com.xover.music.application.session.ListeningSessionService;
 import com.xover.music.application.sync.ClockSynchronizer;
@@ -41,6 +44,24 @@ public final class AppModule {
 
     @Provides
     @Singleton
+    DefaultErrorReporter provideDefaultErrorReporter() {
+        return new DefaultErrorReporter();
+    }
+
+    @Provides
+    @Singleton
+    ErrorReporter provideErrorReporter(DefaultErrorReporter reporter) {
+        return reporter;
+    }
+
+    @Provides
+    @Singleton
+    ErrorEventSource provideErrorEventSource(DefaultErrorReporter reporter) {
+        return reporter;
+    }
+
+    @Provides
+    @Singleton
     AudioPlayerPort provideAudioPlayer() {
         return new JavaFxAudioPlayer();
     }
@@ -58,8 +79,9 @@ public final class AppModule {
         PeerTransportPort transport,
         Clock clock,
         ScheduledExecutorService scheduler,
-        ClockSynchronizer clockSynchronizer
+        ClockSynchronizer clockSynchronizer,
+        ErrorReporter errorReporter
     ) {
-        return new ListeningSessionService(audioPlayer, transport, clock, scheduler, clockSynchronizer);
+        return new ListeningSessionService(audioPlayer, transport, clock, scheduler, clockSynchronizer, errorReporter);
     }
 }

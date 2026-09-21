@@ -1,5 +1,6 @@
 package com.xover.music.audio;
 
+import com.xover.music.application.error.AudioPlaybackException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -68,7 +69,7 @@ final class SoundCloudMediaResolver {
             }
             throw new IOException("SoundCloud client id was not found");
         } catch (IOException ex) {
-            throw new IllegalStateException("Could not resolve SoundCloud URL", ex);
+            throw AudioPlaybackException.resolutionFailed(mediaUri, ex);
         }
     }
 

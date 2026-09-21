@@ -1,5 +1,7 @@
 package com.xover.music.application.network;
 
+import com.xover.music.application.error.InvalidNetworkAddressException;
+
 public record HostStartupConfig(
     String bindHost,
     String advertisedHost,
@@ -9,7 +11,7 @@ public record HostStartupConfig(
         bindHost = normalizeHost(bindHost, "0.0.0.0");
         advertisedHost = normalizeHost(advertisedHost, "127.0.0.1");
         if (port <= 0 || port > 65_535) {
-            throw new IllegalArgumentException("Port must be in range 1..65535");
+            throw InvalidNetworkAddressException.invalidPort(port);
         }
     }
 

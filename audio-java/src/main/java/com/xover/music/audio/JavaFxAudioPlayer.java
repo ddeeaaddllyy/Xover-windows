@@ -2,6 +2,8 @@ package com.xover.music.audio;
 
 import com.xover.music.application.audio.AudioPlayerListener;
 import com.xover.music.application.audio.AudioPlayerPort;
+import com.xover.music.application.error.AudioPlaybackException;
+import com.xover.music.application.error.XoverException;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.media.Media;
@@ -56,7 +58,8 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
             .thenAccept(resolvedUri -> runOnFx(() -> loadResolvedMedia(mediaUri, resolvedUri, generation)))
             .exceptionally(ex -> {
                 if (generation == loadGeneration.get()) {
-                    listener.onError("Could not resolve media: " + mediaUri, unwrapCompletionException(ex));
+                    Throwable failure = mediaResolutionFailure(mediaUri, unwrapCompletionException(ex));
+                    listener.onError("Could not resolve media: " + mediaUri, failure);
                 }
                 return null;
             });
@@ -130,13 +133,17 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
             MediaPlayer nextPlayer = new MediaPlayer(media);
             nextPlayer.setVolume(volume);
             nextPlayer.setOnReady(() -> listener.onReady(toJavaDuration(nextPlayer.getTotalDuration())));
-            nextPlayer.setOnError(() -> listener.onError("Audio engine error", nextPlayer.getError()));
+            nextPlayer.setOnError(() -> {
+                AudioPlaybackException failure = AudioPlaybackException.engineFailed(nextPlayer.getError());
+                listener.onError(failure.title(), failure);
+            });
             nextPlayer.currentTimeProperty().addListener((ignored, oldValue, newValue) ->
                 listener.onPositionChanged(toJavaDuration(newValue))
             );
             player.set(nextPlayer);
         } catch (MediaException ex) {
-            listener.onError("Could not load media: " + originalUri, ex);
+            AudioPlaybackException failure = AudioPlaybackException.loadFailed(originalUri, ex);
+            listener.onError(failure.title(), failure);
         }
     }
 
@@ -183,9 +190,9 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
             return result.get();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while waiting for JavaFX audio engine", ex);
+            throw AudioPlaybackException.fxThreadFailed("Interrupted while waiting for JavaFX audio engine", ex);
         } catch (ExecutionException ex) {
-            throw new IllegalStateException("JavaFX audio engine failed", ex.getCause());
+            throw AudioPlaybackException.fxThreadFailed("JavaFX audio engine failed", ex.getCause());
         }
     }
 
@@ -208,6 +215,13 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
             return throwable.getCause();
         }
         return throwable;
+    }
+
+    private Throwable mediaResolutionFailure(URI mediaUri, Throwable failure) {
+        if (failure instanceof XoverException) {
+            return failure;
+        }
+        return AudioPlaybackException.resolutionFailed(mediaUri, failure);
     }
 
     @FunctionalInterface
