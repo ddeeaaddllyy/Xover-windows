@@ -9,7 +9,7 @@ Xover is a desktop MVP for synchronized music listening with a friend over a pri
 - Ktor embedded HTTP/WebSocket transport.
 - Dagger composition root.
 - JavaFX MediaPlayer audio adapter.
-- Host streams a local audio file from `/track`.
+- Host builds a URL playlist; each client loads the selected track URL locally.
 - Host and client synchronize control messages through `/sync`.
 - Host controls play, pause, and seek.
 - Client estimates host clock offset with lightweight ping samples.
@@ -41,14 +41,14 @@ If this command keeps running after the window appears, that is normal. Gradle i
 ## Friend Test
 
 1. Host opens the app.
-2. Host chooses an audio file.
+2. Host opens `Player` and adds SoundCloud or direct audio URLs to the playlist.
 3. Host enters their VPN IP, for example a Hamachi or Radmin VPN IPv4 address.
 4. Host keeps the default port `47321` or chooses another open port.
 5. Host clicks `Start Host`.
 6. Client opens another app instance on another PC.
 7. Client enters the host VPN IP and the same port.
 8. Client clicks `Connect`.
-9. After the client loads the track, host controls `Play`, `Pause`, and seek.
+9. After the client loads the selected URL, host controls `Play`, `Pause`, and seek.
 
 Quick connection check from the client PC after the host clicks `Start Host`:
 

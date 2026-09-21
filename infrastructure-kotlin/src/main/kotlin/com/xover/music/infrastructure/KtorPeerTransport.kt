@@ -6,21 +6,18 @@ import com.xover.music.application.network.PeerAddress
 import com.xover.music.application.network.PeerMessage
 import com.xover.music.application.network.PeerTransportListener
 import com.xover.music.application.network.PeerTransportPort
+import com.xover.music.domain.PlaylistTrack
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets as ClientWebSockets
 import io.ktor.client.plugins.websocket.webSocket
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
-import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.netty.NettyApplicationEngine
-import io.ktor.server.response.header
-import io.ktor.server.response.respondFile
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
@@ -30,7 +27,6 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
-import io.ktor.websocket.send
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class KtorPeerTransport : PeerTransportPort {
@@ -49,6 +46,8 @@ class KtorPeerTransport : PeerTransportPort {
     }
     private val listenerRef = AtomicReference<PeerTransportListener>(object : PeerTransportListener {})
     private val serverSessions = ConcurrentHashMap.newKeySet<DefaultWebSocketServerSession>()
+    private val serverPeerIds = ConcurrentHashMap<DefaultWebSocketServerSession, String>()
+    private val nextPeerNumber = AtomicInteger(1)
 
     @Volatile
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
@@ -72,13 +71,11 @@ class KtorPeerTransport : PeerTransportPort {
                 get("/health") {
                     call.respondText("Xover host is alive")
                 }
-                get("/track") {
-                    call.response.header(HttpHeaders.ContentDisposition, "inline; filename=\"${config.trackFile().fileName}\"")
-                    call.respondFile(config.trackFile().toFile())
-                }
                 webSocket("/sync") {
+                    val peerId = "client-${nextPeerNumber.getAndIncrement()}"
                     serverSessions.add(this)
-                    listenerRef.get().onPeerConnected("client")
+                    serverPeerIds[this] = peerId
+                    listenerRef.get().onPeerConnected(peerId)
                     try {
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
@@ -89,7 +86,8 @@ class KtorPeerTransport : PeerTransportPort {
                         listenerRef.get().onTransportError("Host WebSocket failed", ex)
                     } finally {
                         serverSessions.remove(this)
-                        listenerRef.get().onPeerDisconnected("client")
+                        serverPeerIds.remove(this)
+                        listenerRef.get().onPeerDisconnected(peerId)
                     }
                 }
             }
@@ -188,6 +186,7 @@ class KtorPeerTransport : PeerTransportPort {
             }
         }
         serverSessions.clear()
+        serverPeerIds.clear()
         server?.stop()
         server = null
     }
@@ -208,6 +207,8 @@ class KtorPeerTransport : PeerTransportPort {
         clientSentAtMillis = clientSentAtMillis(),
         hostReceivedAtMillis = hostReceivedAtMillis(),
         hostSentAtMillis = hostSentAtMillis(),
+        playlist = playlist().map { it.toDto() },
+        currentTrackIndex = currentTrackIndex(),
     )
 
     private fun PeerMessageDto.toDomain(): PeerMessage = PeerMessage(
@@ -220,6 +221,20 @@ class KtorPeerTransport : PeerTransportPort {
         clientSentAtMillis,
         hostReceivedAtMillis,
         hostSentAtMillis,
+        playlist.map { it.toDomain() },
+        currentTrackIndex,
+    )
+
+    private fun PlaylistTrack.toDto(): PlaylistTrackDto = PlaylistTrackDto(
+        id = id(),
+        title = title(),
+        sourceUrl = sourceUrl(),
+    )
+
+    private fun PlaylistTrackDto.toDomain(): PlaylistTrack = PlaylistTrack(
+        id,
+        title,
+        sourceUrl,
     )
 }
 
@@ -234,4 +249,13 @@ private data class PeerMessageDto(
     val clientSentAtMillis: Long = 0L,
     val hostReceivedAtMillis: Long = 0L,
     val hostSentAtMillis: Long = 0L,
+    val playlist: List<PlaylistTrackDto> = emptyList(),
+    val currentTrackIndex: Int = -1,
+)
+
+@Serializable
+private data class PlaylistTrackDto(
+    val id: String = "",
+    val title: String = "",
+    val sourceUrl: String = "",
 )

@@ -12,7 +12,6 @@ Routes:
 
 ```text
 GET /health
-GET /track
 WS  /sync
 ```
 
@@ -28,7 +27,15 @@ WS  /sync
   "startAtHostMillis": 0,
   "clientSentAtMillis": 0,
   "hostReceivedAtMillis": 0,
-  "hostSentAtMillis": 0
+  "hostSentAtMillis": 0,
+  "playlist": [
+    {
+      "id": "uuid",
+      "title": "soundcloud.com / track-name",
+      "sourceUrl": "https://soundcloud.com/artist/track-name"
+    }
+  ],
+  "currentTrackIndex": 0
 }
 ```
 
@@ -36,16 +43,20 @@ All fields are present to keep parsing simple. Message type decides which fields
 
 ## Message Types
 
-### `TRACK_SELECTED`
+### `PLAYLIST_UPDATED`
 
-Sent by host when a peer connects.
+Sent by host when the playlist changes, the current track changes, or a peer connects.
 
 Relevant fields:
 
-- `trackName`
-- `mediaUri`
+- `playlist`
+- `currentTrackIndex`
 
-The client loads `mediaUri`, usually `http://host-vpn-ip:47321/track`.
+Clients load the selected `sourceUrl` themselves. The host sends only metadata and links, not audio bytes.
+
+### `TRACK_SELECTED`
+
+Legacy single-track message. New clients use `PLAYLIST_UPDATED`.
 
 ### `TIME_SYNC_REQUEST`
 

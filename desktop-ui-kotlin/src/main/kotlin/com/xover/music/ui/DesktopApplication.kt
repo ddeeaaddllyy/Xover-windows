@@ -2,11 +2,16 @@ package com.xover.music.ui
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -21,13 +26,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.platform.Font as DesktopFont
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
@@ -37,17 +45,15 @@ import com.xover.music.application.session.SessionObserver
 import com.xover.music.domain.ConnectionStatus
 import com.xover.music.domain.DeviceRole
 import com.xover.music.domain.PlaybackStatus
+import com.xover.music.domain.PlaylistTrack
 import com.xover.music.domain.SessionViewState
 import java.awt.EventQueue
-import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.MouseInfo
 import java.awt.Point
-import java.io.File
-import java.nio.file.Paths
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
+import kotlin.math.roundToInt
 import java.awt.Window as AwtWindow
 
 class DesktopApplication(
@@ -124,15 +130,16 @@ class DesktopApplication(
                                 sessionService.close()
                                 exitApplication()
                             },
-                            onHost = { trackPath, advertisedHost, port ->
-                                sessionService.startHost(Paths.get(trackPath), advertisedHost, port)
+                            onHost = { advertisedHost, port ->
+                                sessionService.startHost(advertisedHost, port)
                             },
                             onConnect = { host, port ->
                                 sessionService.connectToHost(host, port)
                             },
-                            onChooseFile = {
-                                chooseFile()?.absolutePath.orEmpty()
-                            },
+                            onAddTrackUrl = sessionService::addTrackUrl,
+                            onSelectTrack = sessionService::selectTrack,
+                            onRemoveTrack = sessionService::removeTrackAt,
+                            onMoveTrack = sessionService::moveTrack,
                             onPlay = sessionService::play,
                             onPause = sessionService::pause,
                             onSeek = sessionService::seek,
@@ -174,9 +181,12 @@ private fun XoverPanel(
     onCollapse: () -> Unit,
     onMinimize: () -> Unit,
     onClose: () -> Unit,
-    onHost: (String, String, Int) -> Unit,
+    onHost: (String, Int) -> Unit,
     onConnect: (String, Int) -> Unit,
-    onChooseFile: () -> String,
+    onAddTrackUrl: (String) -> Unit,
+    onSelectTrack: (Int) -> Unit,
+    onRemoveTrack: (Int) -> Unit,
+    onMoveTrack: (Int, Int) -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -185,7 +195,6 @@ private fun XoverPanel(
 ) {
     var selectedTab by remember { mutableStateOf(XoverTab.SETUP) }
     var selectedRole by remember { mutableStateOf(SetupRole.HOST) }
-    var trackPath by remember { mutableStateOf("") }
     var advertisedHost by remember { mutableStateOf("127.0.0.1") }
     var connectHost by remember { mutableStateOf("127.0.0.1") }
     var port by remember { mutableStateOf(DefaultPort.toString()) }
@@ -216,32 +225,30 @@ private fun XoverPanel(
         ) {
             when (selectedTab) {
                 XoverTab.SETUP -> SetupTab(
+                    state = state,
                     selectedRole = selectedRole,
-                    trackPath = trackPath,
                     advertisedHost = advertisedHost,
                     connectHost = connectHost,
                     port = port,
                     onRoleSelected = { selectedRole = it },
-                    onTrackPathChange = { trackPath = it },
                     onAdvertisedHostChange = { advertisedHost = it },
                     onConnectHostChange = { connectHost = it },
                     onPortChange = { port = it.filter(Char::isDigit).take(5) },
-                    onChooseFile = {
-                        val selected = onChooseFile()
-                        if (selected.isNotBlank()) {
-                            trackPath = selected
-                        }
-                    },
                     onHost = {
-                        onHost(trackPath, advertisedHost, port.toIntOrNull() ?: DefaultPort)
+                        onHost(advertisedHost, port.toIntOrNull() ?: DefaultPort)
                     },
                     onConnect = {
                         onConnect(connectHost, port.toIntOrNull() ?: DefaultPort)
                     },
+                    onDisconnect = onDisconnect,
                 )
 
                 XoverTab.PLAYER -> PlayerTab(
                     state = state,
+                    onAddTrackUrl = onAddTrackUrl,
+                    onSelectTrack = onSelectTrack,
+                    onRemoveTrack = onRemoveTrack,
+                    onMoveTrack = onMoveTrack,
                     onPlay = onPlay,
                     onPause = onPause,
                     onSeek = onSeek,
@@ -448,20 +455,26 @@ private fun TabButton(
 
 @Composable
 private fun SetupTab(
+    state: SessionViewState,
     selectedRole: SetupRole,
-    trackPath: String,
     advertisedHost: String,
     connectHost: String,
     port: String,
     onRoleSelected: (SetupRole) -> Unit,
-    onTrackPathChange: (String) -> Unit,
     onAdvertisedHostChange: (String) -> Unit,
     onConnectHostChange: (String) -> Unit,
     onPortChange: (String) -> Unit,
-    onChooseFile: () -> Unit,
     onHost: () -> Unit,
     onConnect: () -> Unit,
+    onDisconnect: () -> Unit,
 ) {
+    val hostActive = state.role() == DeviceRole.HOST &&
+        (state.connectionStatus() == ConnectionStatus.HOSTING || state.connectionStatus() == ConnectionStatus.CONNECTED)
+    val clientActive = state.role() == DeviceRole.CLIENT &&
+        (state.connectionStatus() == ConnectionStatus.CONNECTING || state.connectionStatus() == ConnectionStatus.CONNECTED)
+    val blockedByClient = state.role() == DeviceRole.CLIENT && !hostActive
+    val blockedByHost = state.role() == DeviceRole.HOST && !clientActive
+
     Section("Mode") {
         SegmentedRole(selectedRole = selectedRole, onRoleSelected = onRoleSelected)
     }
@@ -472,18 +485,6 @@ private fun SetupTab(
         exit = fadeOut() + shrinkVertically(),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Section("Track") {
-                OutlinedTextField(
-                    value = trackPath,
-                    onValueChange = onTrackPathChange,
-                    label = { Text("Selected file") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    readOnly = false,
-                )
-                SoftButton("Browse audio file", onChooseFile, modifier = Modifier.fillMaxWidth())
-            }
-
             Section("Host network") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
@@ -492,6 +493,7 @@ private fun SetupTab(
                         label = { Text("Your VPN IP") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
+                        enabled = !hostActive && !blockedByClient,
                     )
                     OutlinedTextField(
                         value = port,
@@ -499,13 +501,15 @@ private fun SetupTab(
                         label = { Text("Port") },
                         modifier = Modifier.width(104.dp),
                         singleLine = true,
+                        enabled = !hostActive && !blockedByClient,
                     )
                 }
                 AddressPreview("Friend connects to", advertisedHost, port)
+                StatusRow("Connected listeners", state.connectedPeerIds().size.toString())
                 PrimaryButton(
-                    text = "Start hosting",
-                    onClick = onHost,
-                    enabled = trackPath.isNotBlank(),
+                    text = if (hostActive) "Stop hosting" else "Start hosting",
+                    onClick = if (hostActive) onDisconnect else onHost,
+                    enabled = hostActive || !blockedByClient,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -525,6 +529,7 @@ private fun SetupTab(
                     label = { Text("Host VPN IP") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
+                    enabled = !clientActive && !blockedByHost,
                 )
                 OutlinedTextField(
                     value = port,
@@ -532,10 +537,16 @@ private fun SetupTab(
                     label = { Text("Port") },
                     modifier = Modifier.width(104.dp),
                     singleLine = true,
+                    enabled = !clientActive && !blockedByHost,
                 )
             }
             AddressPreview("Opening", connectHost, port)
-            PrimaryButton("Connect", onConnect, modifier = Modifier.fillMaxWidth())
+            PrimaryButton(
+                text = if (clientActive) "Disconnect" else "Connect",
+                onClick = if (clientActive) onDisconnect else onConnect,
+                enabled = clientActive || !blockedByHost,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -591,12 +602,18 @@ private fun AddressPreview(label: String, host: String, port: String) {
 @Composable
 private fun PlayerTab(
     state: SessionViewState,
+    onAddTrackUrl: (String) -> Unit,
+    onSelectTrack: (Int) -> Unit,
+    onRemoveTrack: (Int) -> Unit,
+    onMoveTrack: (Int, Int) -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
     onLocalVolumeChange: (Int) -> Unit,
 ) {
     val duration = max(1L, state.durationMillis())
+    val canEditPlaylist = state.role() != DeviceRole.CLIENT
+    var trackUrl by remember { mutableStateOf("") }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var volumePosition by remember { mutableFloatStateOf(state.localVolumePercent().toFloat()) }
 
@@ -606,6 +623,43 @@ private fun PlayerTab(
 
     LaunchedEffect(state.localVolumePercent()) {
         volumePosition = state.localVolumePercent().toFloat()
+    }
+
+    Section("Tracks") {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            OutlinedTextField(
+                value = trackUrl,
+                onValueChange = { trackUrl = it },
+                label = { Text("SoundCloud or audio URL") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                enabled = canEditPlaylist,
+            )
+            PrimaryButton(
+                text = "Add",
+                onClick = {
+                    val nextUrl = trackUrl.trim()
+                    if (nextUrl.isNotBlank()) {
+                        onAddTrackUrl(nextUrl)
+                        trackUrl = ""
+                    }
+                },
+                enabled = canEditPlaylist && trackUrl.isNotBlank(),
+                modifier = Modifier.width(86.dp),
+            )
+        }
+        PlaylistEditor(
+            tracks = state.playlist(),
+            currentTrackIndex = state.currentTrackIndex(),
+            canEdit = canEditPlaylist,
+            onSelectTrack = onSelectTrack,
+            onRemoveTrack = onRemoveTrack,
+            onMoveTrack = onMoveTrack,
+        )
     }
 
     Section("Now playing") {
@@ -656,12 +710,212 @@ private fun PlayerTab(
 }
 
 @Composable
+private fun PlaylistEditor(
+    tracks: List<PlaylistTrack>,
+    currentTrackIndex: Int,
+    canEdit: Boolean,
+    onSelectTrack: (Int) -> Unit,
+    onRemoveTrack: (Int) -> Unit,
+    onMoveTrack: (Int, Int) -> Unit,
+) {
+    if (tracks.isEmpty()) {
+        Text("No tracks yet", color = SecondaryText, style = MaterialTheme.typography.caption)
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        tracks.forEachIndexed { index, track ->
+            key(track.id()) {
+                PlaylistTrackRow(
+                    track = track,
+                    index = index,
+                    totalTracks = tracks.size,
+                    selected = index == currentTrackIndex,
+                    canEdit = canEdit,
+                    onSelect = { onSelectTrack(index) },
+                    onRemove = { onRemoveTrack(index) },
+                    onMove = { targetIndex -> onMoveTrack(index, targetIndex) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaylistTrackRow(
+    track: PlaylistTrack,
+    index: Int,
+    totalTracks: Int,
+    selected: Boolean,
+    canEdit: Boolean,
+    onSelect: () -> Unit,
+    onRemove: () -> Unit,
+    onMove: (Int) -> Unit,
+) {
+    val rowHeight = 58.dp
+    val density = LocalDensity.current
+    val rowHeightPx = with(density) { rowHeight.toPx() }
+    var swipeOffsetX by remember(track.id()) { mutableFloatStateOf(0f) }
+    var dragOffsetY by remember(track.id()) { mutableFloatStateOf(0f) }
+    var dragging by remember(track.id()) { mutableStateOf(false) }
+    val animatedSwipeX by animateFloatAsState(
+        targetValue = swipeOffsetX,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "playlistSwipeX",
+    )
+    val animatedDragY by animateFloatAsState(
+        targetValue = dragOffsetY,
+        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+        label = "playlistDragY",
+    )
+    val rowBackground by animateColorAsState(
+        targetValue = if (selected) SurfaceColor else Color.White.copy(alpha = 0.62f),
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "playlistRowBackground",
+    )
+    val border by animateColorAsState(
+        targetValue = if (selected) AccentColor.copy(alpha = 0.5f) else BorderColor.copy(alpha = 0.72f),
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "playlistRowBorder",
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(rowHeight)
+            .zIndex(if (dragging) 1f else 0f),
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(12.dp))
+                .background(DangerColor.copy(alpha = 0.14f))
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            Text("Delete", color = DangerColor, fontWeight = FontWeight.SemiBold)
+        }
+
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    translationX = animatedSwipeX
+                    translationY = animatedDragY
+                    scaleX = if (dragging) 1.01f else 1f
+                    scaleY = if (dragging) 1.01f else 1f
+                }
+                .clip(RoundedCornerShape(12.dp))
+                .background(rowBackground)
+                .border(BorderStroke(1.dp, border), RoundedCornerShape(12.dp))
+                .pointerInput(canEdit, track.id()) {
+                    if (!canEdit) {
+                        return@pointerInput
+                    }
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            dragging = true
+                            swipeOffsetX = 0f
+                        },
+                        onDragEnd = {
+                            val targetIndex = (index + (dragOffsetY / rowHeightPx).roundToInt())
+                                .coerceIn(0, totalTracks - 1)
+                            if (targetIndex != index) {
+                                onMove(targetIndex)
+                            }
+                            dragOffsetY = 0f
+                            dragging = false
+                        },
+                        onDragCancel = {
+                            dragOffsetY = 0f
+                            dragging = false
+                        },
+                    ) { change, dragAmount ->
+                        change.consume()
+                        dragOffsetY += dragAmount.y
+                    }
+                }
+                .pointerInput(canEdit, track.id()) {
+                    if (!canEdit) {
+                        return@pointerInput
+                    }
+                    detectDragGestures(
+                        onDragStart = {
+                            swipeOffsetX = 0f
+                        },
+                        onDragEnd = {
+                            if (swipeOffsetX < -76f) {
+                                onRemove()
+                            }
+                            swipeOffsetX = 0f
+                        },
+                        onDragCancel = {
+                            swipeOffsetX = 0f
+                        },
+                    ) { change, dragAmount ->
+                        if (!dragging && kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                            change.consume()
+                            swipeOffsetX = (swipeOffsetX + dragAmount.x).coerceIn(-112f, 20f)
+                        }
+                    }
+                }
+                .clickable(
+                    enabled = canEdit,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = onSelect,
+                )
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = (index + 1).toString().padStart(2, '0'),
+                color = if (selected) AccentColor else SecondaryText,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.caption,
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = track.title(),
+                    color = PrimaryText,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = track.sourceUrl(),
+                    color = SecondaryText,
+                    style = MaterialTheme.typography.caption,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (canEdit) {
+                Text("::", color = SecondaryText, style = MaterialTheme.typography.overline)
+            }
+        }
+    }
+}
+
+@Composable
 private fun StatusTab(state: SessionViewState) {
     Section("Session state") {
         StatusRow("Role", state.role().name)
         StatusRow("Network", state.connectionStatus().name)
         StatusRow("Playback", state.playbackStatus().name)
         StatusRow("Clock offset", "${state.clockOffsetMillis()} ms")
+    }
+
+    Section("Connected listeners") {
+        StatusRow("Count", state.connectedPeerIds().size.toString())
+        if (state.connectedPeerIds().isEmpty()) {
+            Text("No listeners connected", color = SecondaryText, style = MaterialTheme.typography.caption)
+        } else {
+            state.connectedPeerIds().forEach { peerId ->
+                Text(peerId, color = PrimaryText, fontWeight = FontWeight.Medium)
+            }
+        }
     }
 
     Section("Latest event") {
@@ -915,12 +1169,17 @@ private fun WindowControlButton(
         animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
         label = "windowControlScale",
     )
-    val shakePhase by animateFloatAsState(
-        targetValue = if (hovered && shakeOnHover) 1f else 0f,
-        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
-        label = "windowControlShakePhase",
+    val shakeTransition = rememberInfiniteTransition(label = "windowControlShake")
+    val shakeOffset by shakeTransition.animateFloat(
+        initialValue = -1.4f,
+        targetValue = 1.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 70),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "windowControlShakeOffset",
     )
-    val offsetX = if (shakeOnHover) (sin(shakePhase * Math.PI * 8.0) * 1.4).toFloat() else 0f
+    val offsetX = if (hovered && shakeOnHover) shakeOffset else 0f
 
     Box(
         modifier = modifier
@@ -974,13 +1233,6 @@ private val XoverFontFamily: FontFamily = FontFamily(
     DesktopFont("fonts/Xover-text.ttf", FontWeight.SemiBold),
     DesktopFont("fonts/Xover-text.ttf", FontWeight.Bold),
 )
-
-private fun chooseFile(): File? {
-    val dialog = FileDialog(null as java.awt.Frame?, "Choose audio file", FileDialog.LOAD)
-    dialog.isVisible = true
-    val file = dialog.file ?: return null
-    return File(dialog.directory, file)
-}
 
 private fun statusTitle(state: SessionViewState): String = when (state.connectionStatus()) {
     ConnectionStatus.DISCONNECTED -> "ready to connect"

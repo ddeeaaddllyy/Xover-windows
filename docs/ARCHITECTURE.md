@@ -19,6 +19,7 @@ Contains state that is safe to show and pass around:
 - `DeviceRole`
 - `ConnectionStatus`
 - `PlaybackStatus`
+- `PlaylistTrack`
 - `SessionViewState`
 
 No networking, audio, serialization, DI, or UI dependencies are allowed here.
@@ -28,6 +29,7 @@ No networking, audio, serialization, DI, or UI dependencies are allowed here.
 Owns the workflow:
 
 - host a session;
+- manage a URL playlist;
 - connect to a host;
 - send synchronized play, pause, and seek commands;
 - estimate host/client clock offset;
@@ -47,13 +49,14 @@ Implements `PeerTransportPort` with Ktor.
 Host mode:
 
 - starts an embedded Ktor server;
-- serves the selected audio file at `/track`;
 - accepts WebSocket peers at `/sync`.
+- broadcasts playlist links and playback commands.
 
 Client mode:
 
 - connects to the host WebSocket;
-- receives track metadata and sync commands;
+- receives playlist metadata and sync commands;
+- loads the selected track URL locally;
 - sends time-sync probes.
 
 ### `audio-java`

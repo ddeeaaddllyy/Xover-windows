@@ -13,7 +13,10 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -21,6 +24,13 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
     private static final AtomicBoolean TOOLKIT_STARTED = new AtomicBoolean(false);
 
     private final AtomicReference<MediaPlayer> player = new AtomicReference<>();
+    private final SoundCloudMediaResolver mediaResolver = new SoundCloudMediaResolver();
+    private final ExecutorService resolverExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "xover-media-resolver");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private final AtomicLong loadGeneration = new AtomicLong();
     private volatile double volume = 1.0D;
     private volatile AudioPlayerListener listener = new AudioPlayerListener() {
     };
@@ -38,22 +48,18 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
     @Override
     public void load(URI mediaUri) {
         Objects.requireNonNull(mediaUri, "mediaUri");
-        runOnFx(() -> {
-            disposeCurrentPlayer();
-            try {
-                Media media = new Media(mediaUri.toString());
-                MediaPlayer nextPlayer = new MediaPlayer(media);
-                nextPlayer.setVolume(volume);
-                nextPlayer.setOnReady(() -> listener.onReady(toJavaDuration(nextPlayer.getTotalDuration())));
-                nextPlayer.setOnError(() -> listener.onError("Audio engine error", nextPlayer.getError()));
-                nextPlayer.currentTimeProperty().addListener((ignored, oldValue, newValue) ->
-                    listener.onPositionChanged(toJavaDuration(newValue))
-                );
-                player.set(nextPlayer);
-            } catch (MediaException ex) {
-                listener.onError("Could not load media: " + mediaUri, ex);
-            }
-        });
+        long generation = loadGeneration.incrementAndGet();
+        runOnFx(this::disposeCurrentPlayer);
+
+        CompletableFuture
+            .supplyAsync(() -> mediaResolver.resolve(mediaUri), resolverExecutor)
+            .thenAccept(resolvedUri -> runOnFx(() -> loadResolvedMedia(mediaUri, resolvedUri, generation)))
+            .exceptionally(ex -> {
+                if (generation == loadGeneration.get()) {
+                    listener.onError("Could not resolve media: " + mediaUri, unwrapCompletionException(ex));
+                }
+                return null;
+            });
     }
 
     @Override
@@ -109,7 +115,29 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
 
     @Override
     public void close() {
+        loadGeneration.incrementAndGet();
         runOnFx(this::disposeCurrentPlayer);
+        resolverExecutor.shutdownNow();
+    }
+
+    private void loadResolvedMedia(URI originalUri, URI resolvedUri, long generation) {
+        if (generation != loadGeneration.get()) {
+            return;
+        }
+
+        try {
+            Media media = new Media(resolvedUri.toString());
+            MediaPlayer nextPlayer = new MediaPlayer(media);
+            nextPlayer.setVolume(volume);
+            nextPlayer.setOnReady(() -> listener.onReady(toJavaDuration(nextPlayer.getTotalDuration())));
+            nextPlayer.setOnError(() -> listener.onError("Audio engine error", nextPlayer.getError()));
+            nextPlayer.currentTimeProperty().addListener((ignored, oldValue, newValue) ->
+                listener.onPositionChanged(toJavaDuration(newValue))
+            );
+            player.set(nextPlayer);
+        } catch (MediaException ex) {
+            listener.onError("Could not load media: " + originalUri, ex);
+        }
     }
 
     private void withPlayer(PlayerAction action) {
@@ -173,6 +201,13 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
             return Duration.ZERO;
         }
         return Duration.ofMillis(Math.max(0L, Math.round(fxDuration.toMillis())));
+    }
+
+    private Throwable unwrapCompletionException(Throwable throwable) {
+        if (throwable.getCause() != null) {
+            return throwable.getCause();
+        }
+        return throwable;
     }
 
     @FunctionalInterface

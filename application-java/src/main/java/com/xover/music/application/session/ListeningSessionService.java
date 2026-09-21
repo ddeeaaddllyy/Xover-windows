@@ -12,12 +12,14 @@ import com.xover.music.application.sync.ClockSynchronizer;
 import com.xover.music.domain.ConnectionStatus;
 import com.xover.music.domain.DeviceRole;
 import com.xover.music.domain.PlaybackStatus;
+import com.xover.music.domain.PlaylistTrack;
 import com.xover.music.domain.SessionViewState;
 
 import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -75,37 +77,52 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         observers.remove(observer);
     }
 
-    public void startHost(Path trackFile, String advertisedHost, int port) {
-        try {
-            if (trackFile == null || !Files.isRegularFile(trackFile)) {
-                throw new IllegalArgumentException("Choose an existing audio file before hosting");
-            }
+    public void startHost(String advertisedHost, int port) {
+        if (isHostActive(state)) {
+            updateState(previous -> previous.withMessage("Hosting is already running"));
+            return;
+        }
+        if (isClientActive(state)) {
+            updateState(previous -> previous.withMessage("Disconnect before hosting"));
+            return;
+        }
 
-            HostStartupConfig config = new HostStartupConfig("0.0.0.0", advertisedHost, port, trackFile.toAbsolutePath());
+        try {
+            HostStartupConfig config = new HostStartupConfig("0.0.0.0", advertisedHost, port);
             hostConfig = config;
 
             updateState(previous -> previous
                 .withRole(DeviceRole.HOST)
                 .withConnectionStatus(ConnectionStatus.HOSTING)
-                .withPlaybackStatus(PlaybackStatus.LOADING)
-                .withTrack(trackFile.getFileName().toString(), 0L)
+                .withConnectedPeers(List.of())
                 .withMessage("Hosting on port " + port)
             );
 
-            audioPlayer.load(trackFile.toUri());
             transport.startHost(config);
+            loadCurrentPlaylistTrack("Loading current track");
+            broadcastPlaylist();
         } catch (RuntimeException ex) {
             fail("Could not start host session", ex);
         }
     }
 
     public void connectToHost(String host, int port) {
+        if (isClientActive(state)) {
+            updateState(previous -> previous.withMessage("Client connection is already active"));
+            return;
+        }
+        if (isHostActive(state)) {
+            updateState(previous -> previous.withMessage("Stop hosting before connecting"));
+            return;
+        }
+
         try {
             hostConfig = null;
             updateState(previous -> previous
                 .withRole(DeviceRole.CLIENT)
                 .withConnectionStatus(ConnectionStatus.CONNECTING)
                 .withPlaybackStatus(PlaybackStatus.STOPPED)
+                .withConnectedPeers(List.of())
                 .withMessage("Connecting to " + host + ":" + port)
             );
             transport.connect(new PeerAddress(host, port));
@@ -114,9 +131,123 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
     }
 
+    public void addTrackUrl(String sourceUrl) {
+        if (state.role() == DeviceRole.CLIENT) {
+            updateState(previous -> previous.withMessage("Only host can edit the playlist"));
+            return;
+        }
+
+        try {
+            URI sourceUri = validateTrackSource(sourceUrl);
+            PlaylistTrack track = PlaylistTrack.create(titleFromUri(sourceUri), sourceUri.toString());
+            boolean[] shouldLoad = new boolean[1];
+
+            updateState(previous -> {
+                List<PlaylistTrack> nextPlaylist = new ArrayList<>(previous.playlist());
+                nextPlaylist.add(track);
+                int nextIndex = previous.currentTrackIndex() < 0 ? 0 : previous.currentTrackIndex();
+                shouldLoad[0] = previous.currentTrackIndex() < 0 && previous.role() == DeviceRole.HOST;
+                return previous
+                    .withPlaylist(nextPlaylist, nextIndex)
+                    .withPlaybackStatus(shouldLoad[0] ? PlaybackStatus.LOADING : previous.playbackStatus())
+                    .withMessage("Track added: " + track.title());
+            });
+
+            if (shouldLoad[0]) {
+                loadCurrentPlaylistTrack("Loading added track");
+            }
+            broadcastPlaylist();
+        } catch (RuntimeException ex) {
+            updateState(previous -> previous.withMessage("Could not add track URL: " + ex.getMessage()));
+        }
+    }
+
+    public void selectTrack(int trackIndex) {
+        if (state.role() == DeviceRole.CLIENT) {
+            updateState(previous -> previous.withMessage("Only host can select playlist tracks"));
+            return;
+        }
+        if (trackIndex < 0 || trackIndex >= state.playlist().size()) {
+            updateState(previous -> previous.withMessage("Track selection is out of range"));
+            return;
+        }
+
+        updateState(previous -> previous
+            .withPlaylist(previous.playlist(), trackIndex)
+            .withPlaybackStatus(PlaybackStatus.LOADING)
+            .withMessage("Selected track: " + previous.playlist().get(trackIndex).title())
+        );
+        loadCurrentPlaylistTrack("Loading selected track");
+        broadcastPlaylist();
+    }
+
+    public void removeTrackAt(int trackIndex) {
+        if (state.role() == DeviceRole.CLIENT) {
+            updateState(previous -> previous.withMessage("Only host can edit the playlist"));
+            return;
+        }
+        if (trackIndex < 0 || trackIndex >= state.playlist().size()) {
+            return;
+        }
+
+        boolean removedCurrent = trackIndex == state.currentTrackIndex();
+        updateState(previous -> {
+            List<PlaylistTrack> nextPlaylist = new ArrayList<>(previous.playlist());
+            PlaylistTrack removed = nextPlaylist.remove(trackIndex);
+            int nextIndex = nextPlaylist.isEmpty()
+                ? -1
+                : nextIndexAfterRemoval(previous.currentTrackIndex(), trackIndex, nextPlaylist.size());
+            PlaybackStatus nextStatus = nextPlaylist.isEmpty()
+                ? PlaybackStatus.STOPPED
+                : removedCurrent ? PlaybackStatus.LOADING : previous.playbackStatus();
+            return previous
+                .withPlaylist(nextPlaylist, nextIndex)
+                .withPlaybackStatus(nextStatus)
+                .withMessage("Removed track: " + removed.title());
+        });
+
+        if (state.playlist().isEmpty()) {
+            audioPlayer.stop();
+        } else if (removedCurrent) {
+            loadCurrentPlaylistTrack("Loading next track");
+        }
+        broadcastPlaylist();
+    }
+
+    public void moveTrack(int fromIndex, int toIndex) {
+        if (state.role() == DeviceRole.CLIENT) {
+            updateState(previous -> previous.withMessage("Only host can edit the playlist"));
+            return;
+        }
+        int playlistSize = state.playlist().size();
+        if (fromIndex < 0 || fromIndex >= playlistSize || playlistSize < 2) {
+            return;
+        }
+
+        int normalizedToIndex = Math.max(0, Math.min(playlistSize - 1, toIndex));
+        if (fromIndex == normalizedToIndex) {
+            return;
+        }
+
+        updateState(previous -> {
+            List<PlaylistTrack> nextPlaylist = new ArrayList<>(previous.playlist());
+            PlaylistTrack moved = nextPlaylist.remove(fromIndex);
+            nextPlaylist.add(normalizedToIndex, moved);
+            int nextCurrentIndex = currentIndexAfterMove(previous.currentTrackIndex(), fromIndex, normalizedToIndex);
+            return previous
+                .withPlaylist(nextPlaylist, nextCurrentIndex)
+                .withMessage("Moved track: " + moved.title());
+        });
+        broadcastPlaylist();
+    }
+
     public void play() {
         if (state.role() != DeviceRole.HOST) {
             updateState(previous -> previous.withMessage("Only host controls synchronized playback in this MVP"));
+            return;
+        }
+        if (state.currentTrack() == null) {
+            updateState(previous -> previous.withMessage("Add a track before playback"));
             return;
         }
 
@@ -200,16 +331,23 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     @Override
     public void onPeerConnected(String peerId) {
-        updateState(previous -> previous
-            .withConnectionStatus(ConnectionStatus.CONNECTED)
-            .withMessage("Peer connected: " + peerId)
-        );
+        if (state.role() == DeviceRole.HOST) {
+            updateState(previous -> {
+                List<String> peers = addPeer(previous.connectedPeerIds(), peerId);
+                return previous
+                    .withConnectedPeers(peers)
+                    .withConnectionStatus(ConnectionStatus.CONNECTED)
+                    .withMessage("Peer connected: " + peerId);
+            });
+        } else {
+            updateState(previous -> previous
+                .withConnectionStatus(ConnectionStatus.CONNECTED)
+                .withMessage("Connected to host")
+            );
+        }
 
         if (state.role() == DeviceRole.HOST && hostConfig != null) {
-            transport.broadcast(PeerMessage.trackSelected(
-                hostConfig.trackFile().getFileName().toString(),
-                hostConfig.mediaUri()
-            ));
+            broadcastPlaylist();
         }
 
         if (state.role() == DeviceRole.CLIENT) {
@@ -219,10 +357,24 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     @Override
     public void onPeerDisconnected(String peerId) {
-        updateState(previous -> previous
-            .withConnectionStatus(state.role() == DeviceRole.HOST ? ConnectionStatus.HOSTING : ConnectionStatus.DISCONNECTED)
-            .withMessage("Peer disconnected: " + peerId)
-        );
+        if (state.role() == DeviceRole.IDLE) {
+            return;
+        }
+
+        if (state.role() == DeviceRole.HOST) {
+            updateState(previous -> {
+                List<String> peers = removePeer(previous.connectedPeerIds(), peerId);
+                return previous
+                    .withConnectedPeers(peers)
+                    .withConnectionStatus(peers.isEmpty() ? ConnectionStatus.HOSTING : ConnectionStatus.CONNECTED)
+                    .withMessage("Peer disconnected: " + peerId);
+            });
+        } else {
+            updateState(previous -> previous
+                .withConnectionStatus(ConnectionStatus.DISCONNECTED)
+                .withMessage("Disconnected from host")
+            );
+        }
         if (state.role() == DeviceRole.CLIENT) {
             stopTimeSyncLoop();
         }
@@ -233,6 +385,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         long receivedAtMillis = clock.nowMillis();
 
         switch (message.type()) {
+            case PLAYLIST_UPDATED -> applyRemotePlaylist(message);
             case TRACK_SELECTED -> loadRemoteTrack(message);
             case PLAY_AT -> schedulePlay(message.positionMillis(), message.startAtHostMillis());
             case PAUSE -> pauseFromRemote(message.positionMillis());
@@ -269,6 +422,97 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         } catch (RuntimeException ex) {
             fail("Could not load remote track", ex);
         }
+    }
+
+    private void applyRemotePlaylist(PeerMessage message) {
+        try {
+            boolean[] trackChanged = new boolean[1];
+            updateState(previous -> previous
+                .withPlaylist(message.playlist(), message.currentTrackIndex())
+                .withPlaybackStatus(nextPlaylistStatus(previous, message, trackChanged))
+                .withMessage(message.playlist().isEmpty() ? "Playlist is empty" : "Playlist updated")
+            );
+            if (trackChanged[0]) {
+                loadCurrentPlaylistTrack("Loading playlist track");
+            }
+        } catch (RuntimeException ex) {
+            fail("Could not apply playlist update", ex);
+        }
+    }
+
+    private void loadCurrentPlaylistTrack(String loadingMessage) {
+        PlaylistTrack track = state.currentTrack();
+        if (track == null) {
+            audioPlayer.stop();
+            updateState(previous -> previous
+                .withPlaybackStatus(PlaybackStatus.STOPPED)
+                .withTrack("", 0L)
+                .withMessage("Playlist is empty")
+            );
+            return;
+        }
+
+        updateState(previous -> previous
+            .withPlaybackStatus(PlaybackStatus.LOADING)
+            .withTrack(track.title(), 0L)
+            .withMessage(loadingMessage)
+        );
+        audioPlayer.load(URI.create(track.sourceUrl()));
+    }
+
+    private void broadcastPlaylist() {
+        if (state.role() == DeviceRole.HOST) {
+            transport.broadcast(PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex()));
+        }
+    }
+
+    private PlaybackStatus nextPlaylistStatus(SessionViewState previous, PeerMessage message, boolean[] trackChanged) {
+        if (message.playlist().isEmpty()) {
+            trackChanged[0] = previous.currentTrack() != null;
+            return PlaybackStatus.STOPPED;
+        }
+
+        int nextIndex = Math.max(0, Math.min(message.playlist().size() - 1, message.currentTrackIndex()));
+        PlaylistTrack nextTrack = message.playlist().get(nextIndex);
+        trackChanged[0] = !sameTrack(previous.currentTrack(), nextTrack);
+        return trackChanged[0] ? PlaybackStatus.LOADING : previous.playbackStatus();
+    }
+
+    private boolean sameTrack(PlaylistTrack first, PlaylistTrack second) {
+        if (first == null || second == null) {
+            return first == second;
+        }
+        return first.id().equals(second.id());
+    }
+
+    private boolean isHostActive(SessionViewState viewState) {
+        return viewState.role() == DeviceRole.HOST
+            && (
+                viewState.connectionStatus() == ConnectionStatus.HOSTING
+                    || viewState.connectionStatus() == ConnectionStatus.CONNECTED
+            );
+    }
+
+    private boolean isClientActive(SessionViewState viewState) {
+        return viewState.role() == DeviceRole.CLIENT
+            && (
+                viewState.connectionStatus() == ConnectionStatus.CONNECTING
+                    || viewState.connectionStatus() == ConnectionStatus.CONNECTED
+            );
+    }
+
+    private List<String> addPeer(List<String> peers, String peerId) {
+        List<String> nextPeers = new ArrayList<>(peers);
+        if (!nextPeers.contains(peerId)) {
+            nextPeers.add(peerId);
+        }
+        return nextPeers;
+    }
+
+    private List<String> removePeer(List<String> peers, String peerId) {
+        List<String> nextPeers = new ArrayList<>(peers);
+        nextPeers.remove(peerId);
+        return nextPeers;
     }
 
     private void schedulePlay(long positionMillis, long startAtHostMillis) {
@@ -354,6 +598,59 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
     }
 
+    private URI validateTrackSource(String sourceUrl) {
+        if (sourceUrl == null || sourceUrl.isBlank()) {
+            throw new IllegalArgumentException("Track URL is required");
+        }
+        URI uri = URI.create(sourceUrl.trim());
+        String scheme = uri.getScheme();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            throw new IllegalArgumentException("Track URL must start with http:// or https://");
+        }
+        return uri;
+    }
+
+    private String titleFromUri(URI uri) {
+        String host = uri.getHost() == null ? "" : uri.getHost().replaceFirst("^www\\.", "");
+        String path = uri.getPath() == null ? "" : uri.getPath();
+        String[] parts = path.split("/");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            if (!parts[i].isBlank()) {
+                String decoded = URLDecoder.decode(parts[i], StandardCharsets.UTF_8);
+                String trimmedExtension = decoded.replaceFirst("\\.[A-Za-z0-9]{2,5}$", "");
+                String readable = trimmedExtension.replace('-', ' ').replace('_', ' ').trim();
+                return host.isBlank() ? readable : host + " / " + readable;
+            }
+        }
+        return uri.toString();
+    }
+
+    private int nextIndexAfterRemoval(int currentIndex, int removedIndex, int nextSize) {
+        if (nextSize <= 0) {
+            return -1;
+        }
+        if (removedIndex < currentIndex) {
+            return currentIndex - 1;
+        }
+        if (removedIndex == currentIndex) {
+            return Math.min(removedIndex, nextSize - 1);
+        }
+        return Math.min(currentIndex, nextSize - 1);
+    }
+
+    private int currentIndexAfterMove(int currentIndex, int fromIndex, int toIndex) {
+        if (currentIndex == fromIndex) {
+            return toIndex;
+        }
+        if (fromIndex < currentIndex && toIndex >= currentIndex) {
+            return currentIndex - 1;
+        }
+        if (fromIndex > currentIndex && toIndex <= currentIndex) {
+            return currentIndex + 1;
+        }
+        return currentIndex;
+    }
+
     private void fail(String message, Throwable cause) {
         String detail = cause == null ? message : message + ": " + cause.getMessage();
         updateState(previous -> previous
@@ -369,6 +666,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             next = mutation.apply(state);
             state = next;
         }
+        notifyObservers(next);
+    }
+
+    private void notifyObservers(SessionViewState next) {
         for (SessionObserver observer : observers) {
             observer.onStateChanged(next);
         }
