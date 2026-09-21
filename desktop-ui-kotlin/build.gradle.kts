@@ -8,6 +8,12 @@ kotlin {
     jvmToolchain(21)
 }
 
+sourceSets {
+    main {
+        resources.srcDir(rootProject.file("assets"))
+    }
+}
+
 dependencies {
     implementation(project(":application-java"))
 

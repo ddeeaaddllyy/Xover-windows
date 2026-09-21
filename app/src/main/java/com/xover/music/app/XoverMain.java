@@ -1,5 +1,6 @@
 package com.xover.music.app;
 
+import com.xover.music.application.error.ErrorReporter;
 import com.xover.music.ui.DesktopApplication;
 
 public final class XoverMain {
@@ -8,6 +9,14 @@ public final class XoverMain {
 
     public static void main(String[] args) {
         AppComponent component = DaggerAppComponent.create();
-        new DesktopApplication(component.listeningSessionService()).start();
+        ErrorReporter errorReporter = component.errorReporter();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) ->
+            errorReporter.report("Uncaught error on " + thread.getName(), failure)
+        );
+        new DesktopApplication(
+            component.listeningSessionService(),
+            component.errorEventSource(),
+            errorReporter
+        ).start();
     }
 }
