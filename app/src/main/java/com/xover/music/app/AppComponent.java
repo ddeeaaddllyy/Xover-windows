@@ -1,7 +1,7 @@
 package com.xover.music.app;
 
-import com.xover.music.application.error.ErrorEventSource;
-import com.xover.music.application.error.ErrorReporter;
+import com.xover.music.application.common.diagnostics.ErrorEventSource;
+import com.xover.music.application.common.diagnostics.ErrorReporter;
 import com.xover.music.application.session.ListeningSessionService;
 import dagger.Component;
 

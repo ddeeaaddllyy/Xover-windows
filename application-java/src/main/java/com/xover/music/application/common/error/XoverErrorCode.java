@@ -1,4 +1,4 @@
-package com.xover.music.application.error;
+package com.xover.music.application.common.error;
 
 public enum XoverErrorCode {
     VALIDATION("Validation"),

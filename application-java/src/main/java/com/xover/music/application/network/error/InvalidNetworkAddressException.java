@@ -1,4 +1,7 @@
-package com.xover.music.application.error;
+package com.xover.music.application.network.error;
+
+import com.xover.music.application.common.error.XoverErrorCode;
+import com.xover.music.application.common.error.XoverException;
 
 public final class InvalidNetworkAddressException extends XoverException {
     private InvalidNetworkAddressException(String message, String key, Object value) {

@@ -1,4 +1,6 @@
-package com.xover.music.application.error;
+package com.xover.music.application.common.diagnostics;
+
+import com.xover.music.application.common.error.XoverErrorCode;
 
 import java.time.Instant;
 import java.util.List;

@@ -1,6 +1,6 @@
 package com.xover.music.application.network;
 
-import com.xover.music.application.error.InvalidNetworkAddressException;
+import com.xover.music.application.network.error.InvalidNetworkAddressException;
 
 public record HostStartupConfig(
     String bindHost,

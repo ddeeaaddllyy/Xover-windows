@@ -12,8 +12,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.xover.music.application.error.ErrorEventSource
-import com.xover.music.application.error.ErrorReporter
+import com.xover.music.application.common.diagnostics.ErrorEventSource
+import com.xover.music.application.common.diagnostics.ErrorReporter
 import com.xover.music.application.session.ListeningSessionService
 import java.awt.Frame
 

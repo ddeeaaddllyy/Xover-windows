@@ -1,6 +1,6 @@
 package com.xover.music.app;
 
-import com.xover.music.application.error.ErrorReporter;
+import com.xover.music.application.common.diagnostics.ErrorReporter;
 import com.xover.music.ui.DesktopApplication;
 
 public final class XoverMain {

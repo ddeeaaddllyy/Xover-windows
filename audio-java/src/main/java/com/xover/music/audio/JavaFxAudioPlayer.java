@@ -2,8 +2,8 @@ package com.xover.music.audio;
 
 import com.xover.music.application.audio.AudioPlayerListener;
 import com.xover.music.application.audio.AudioPlayerPort;
-import com.xover.music.application.error.AudioPlaybackException;
-import com.xover.music.application.error.XoverException;
+import com.xover.music.application.audio.error.AudioPlaybackException;
+import com.xover.music.application.common.error.XoverException;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.media.Media;

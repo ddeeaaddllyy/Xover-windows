@@ -1,5 +1,7 @@
-package com.xover.music.application.error;
+package com.xover.music.application.network.error;
 
+import com.xover.music.application.common.error.XoverErrorCode;
+import com.xover.music.application.common.error.XoverException;
 import com.xover.music.application.network.HostStartupConfig;
 import com.xover.music.application.network.PeerAddress;
 

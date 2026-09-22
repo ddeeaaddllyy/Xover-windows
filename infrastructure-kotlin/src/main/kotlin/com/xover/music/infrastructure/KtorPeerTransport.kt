@@ -2,9 +2,9 @@ package com.xover.music.infrastructure
 
 import com.xover.music.application.network.HostStartupConfig
 import com.xover.music.application.network.MessageType
-import com.xover.music.application.error.NetworkTransportException
-import com.xover.music.application.error.RemoteProtocolException
-import com.xover.music.application.error.XoverException
+import com.xover.music.application.network.error.NetworkTransportException
+import com.xover.music.application.network.error.RemoteProtocolException
+import com.xover.music.application.common.error.XoverException
 import com.xover.music.application.network.PeerAddress
 import com.xover.music.application.network.PeerMessage
 import com.xover.music.application.network.PeerTransportListener

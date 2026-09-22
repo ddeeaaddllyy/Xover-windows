@@ -67,6 +67,15 @@ Implements `AudioPlayerPort` with JavaFX MediaPlayer. The application layer sees
 
 Compose Desktop UI. It observes `SessionViewState` and forwards user actions to `ListeningSessionService`.
 
+The UI is physically split into folders by responsibility:
+
+- `state` for Compose subscriptions to application state;
+- `panel` for the main window tabs and panel structure;
+- `components` for shared UI building blocks;
+- `theme` for colors, typography, sizes, and app icon loading.
+
+These files intentionally keep the same Kotlin package to make the split mechanical and low-risk.
+
 ### `app`
 
 Dagger composition root:
@@ -96,3 +105,5 @@ The current MVP uses scheduled starts and clock offset estimation. Continuous dr
 - Add a new audio backend by implementing `AudioPlayerPort`.
 - Add new use cases in `application-java`; do not put workflow logic in UI.
 - Add external libraries only in adapter modules or `app`, unless they are pure domain utilities.
+
+For a fuller code walkthrough, read `docs/CODEBASE_GUIDE.md`.

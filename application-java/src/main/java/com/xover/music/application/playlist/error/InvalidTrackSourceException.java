@@ -1,4 +1,7 @@
-package com.xover.music.application.error;
+package com.xover.music.application.playlist.error;
+
+import com.xover.music.application.common.error.XoverErrorCode;
+import com.xover.music.application.common.error.XoverException;
 
 import java.net.URI;
 

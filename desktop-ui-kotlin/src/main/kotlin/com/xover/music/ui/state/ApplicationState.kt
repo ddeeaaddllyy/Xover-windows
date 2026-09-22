@@ -1,10 +1,10 @@
 package com.xover.music.ui
 
 import androidx.compose.runtime.*
-import com.xover.music.application.error.ErrorEvent
-import com.xover.music.application.error.ErrorEventListener
-import com.xover.music.application.error.ErrorEventSource
-import com.xover.music.application.error.ErrorReporter
+import com.xover.music.application.common.diagnostics.ErrorEvent
+import com.xover.music.application.common.diagnostics.ErrorEventListener
+import com.xover.music.application.common.diagnostics.ErrorEventSource
+import com.xover.music.application.common.diagnostics.ErrorReporter
 import com.xover.music.application.session.ListeningSessionService
 import com.xover.music.application.session.SessionObserver
 import com.xover.music.domain.SessionViewState

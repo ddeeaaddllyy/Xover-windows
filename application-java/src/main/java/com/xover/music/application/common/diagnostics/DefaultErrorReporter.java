@@ -1,4 +1,7 @@
-package com.xover.music.application.error;
+package com.xover.music.application.common.diagnostics;
+
+import com.xover.music.application.common.error.UnexpectedXoverException;
+import com.xover.music.application.common.error.XoverException;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;

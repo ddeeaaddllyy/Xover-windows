@@ -1,5 +1,9 @@
 package com.xover.music.application.error;
 
+import com.xover.music.application.common.diagnostics.DefaultErrorReporter;
+import com.xover.music.application.common.diagnostics.ErrorEvent;
+import com.xover.music.application.common.error.XoverErrorCode;
+import com.xover.music.application.playlist.error.InvalidTrackSourceException;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

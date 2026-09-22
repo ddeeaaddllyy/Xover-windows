@@ -1,6 +1,6 @@
 package com.xover.music.audio;
 
-import com.xover.music.application.error.AudioPlaybackException;
+import com.xover.music.application.audio.error.AudioPlaybackException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 

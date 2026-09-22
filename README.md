@@ -90,6 +90,13 @@ app
 
 Inner layers do not depend on Ktor, JavaFX, Compose, or Dagger. Frameworks are adapters around application ports.
 
+## Developer Docs
+
+- `docs/CODEBASE_GUIDE.md` explains where the main code lives and how the core flows work.
+- `docs/ARCHITECTURE.md` summarizes module boundaries.
+- `docs/PROTOCOL.md` documents the WebSocket protocol.
+- `docs/ERROR_LAYOUT_PROPOSAL.md` proposes a future error package layout without moving code.
+
 ## Format Support
 
 Audio is currently handled by JavaFX MediaPlayer. MP3 is the primary target for the MVP. Actual codec support can depend on the operating system and installed media stack. If broad codec support becomes important, replace `audio-java` with a VLCJ adapter while keeping the same `AudioPlayerPort`.
