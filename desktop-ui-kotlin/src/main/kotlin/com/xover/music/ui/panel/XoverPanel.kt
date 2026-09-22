@@ -38,6 +38,7 @@ internal fun XoverPanel(
     onSeek: (Long) -> Unit,
     onLocalVolumeChange: (Int) -> Unit,
     onDisconnect: () -> Unit,
+    onDisconnectPeer: (String) -> Unit,
 ) {
     var selectedTab by remember { mutableStateOf(XoverTab.SETUP) }
     var selectedRole by remember { mutableStateOf(SetupRole.HOST) }
@@ -101,7 +102,10 @@ internal fun XoverPanel(
                     onLocalVolumeChange = onLocalVolumeChange,
                 )
 
-                XoverTab.STATUS -> StatusTab(state)
+                XoverTab.STATUS -> StatusTab(
+                    state = state,
+                    onDisconnectPeer = onDisconnectPeer,
+                )
 
                 XoverTab.MORE -> MoreTab(
                     state = state,
@@ -110,6 +114,7 @@ internal fun XoverPanel(
                     onPinnedChange = onPinnedChange,
                     onOpacityChange = onOpacityChange,
                     onDisconnect = onDisconnect,
+                    onDisconnectPeer = onDisconnectPeer,
                     onCollapse = onCollapse,
                     onMinimize = onMinimize,
                 )

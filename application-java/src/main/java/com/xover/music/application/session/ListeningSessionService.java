@@ -317,6 +317,29 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         );
     }
 
+    public void disconnectPeer(String peerId) {
+        if (state.role() != DeviceRole.HOST) {
+            updateState(previous -> previous.withMessage("Only host can disconnect listeners"));
+            return;
+        }
+        if (peerId == null || peerId.isBlank()) {
+            return;
+        }
+        if (!state.connectedPeerIds().contains(peerId)) {
+            updateState(previous -> previous.withMessage("Listener is not connected: " + peerId));
+            return;
+        }
+
+        transport.disconnectPeer(peerId);
+        updateState(previous -> {
+            List<String> peers = removePeer(previous.connectedPeerIds(), peerId);
+            return previous
+                .withConnectedPeers(peers)
+                .withConnectionStatus(peers.isEmpty() ? ConnectionStatus.HOSTING : ConnectionStatus.CONNECTED)
+                .withMessage("Listener disconnected: " + peerId);
+        });
+    }
+
     public void setLocalVolumePercent(int volumePercent) {
         int clampedVolume = Math.max(0, Math.min(100, volumePercent));
         audioPlayer.setVolume(clampedVolume / 100.0D);

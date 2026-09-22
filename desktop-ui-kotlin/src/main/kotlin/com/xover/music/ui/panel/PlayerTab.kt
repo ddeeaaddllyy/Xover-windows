@@ -91,6 +91,7 @@ internal fun PlayerTab(
             onSelectTrack = onSelectTrack,
             onRemoveTrack = onRemoveTrack,
             onMoveTrack = onMoveTrack,
+            onAddTrackUrl = onAddTrackUrl,
         )
     }
 
@@ -153,6 +154,7 @@ internal fun PlaylistEditor(
     onSelectTrack: (Int) -> Unit,
     onRemoveTrack: (Int) -> Unit,
     onMoveTrack: (Int, Int) -> Unit,
+    onAddTrackUrl: (String) -> Unit,
 ) {
     if (tracks.isEmpty()) {
         Text("No tracks yet", color = SecondaryText, style = MaterialTheme.typography.caption)
@@ -169,6 +171,7 @@ internal fun PlaylistEditor(
                     selected = index == currentTrackIndex,
                     canEdit = canEdit,
                     onSelect = { onSelectTrack(index) },
+                    onDuplicate = { onAddTrackUrl(track.sourceUrl()) },
                     onRemove = { onRemoveTrack(index) },
                     onMove = { targetIndex -> onMoveTrack(index, targetIndex) },
                 )
@@ -185,6 +188,7 @@ internal fun PlaylistTrackRow(
     selected: Boolean,
     canEdit: Boolean,
     onSelect: () -> Unit,
+    onDuplicate: () -> Unit,
     onRemove: () -> Unit,
     onMove: (Int) -> Unit,
 ) {
@@ -205,7 +209,7 @@ internal fun PlaylistTrackRow(
         label = "playlistDragY",
     )
     val rowBackground by animateColorAsState(
-        targetValue = if (selected) SurfaceColor else Color.White.copy(alpha = 0.62f),
+        targetValue = if (selected) SurfaceColor else Color.White,
         animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "playlistRowBackground",
     )
@@ -215,120 +219,134 @@ internal fun PlaylistTrackRow(
         label = "playlistRowBorder",
     )
 
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(rowHeight)
-            .zIndex(if (dragging) 1f else 0f),
+    ContextMenuArea(
+        items = {
+            if (!canEdit) {
+                emptyList()
+            } else {
+                listOf(
+                    ContextMenuItem("Add again", onDuplicate),
+                    ContextMenuItem("Delete", onRemove),
+                )
+            }
+        },
     ) {
         Box(
             modifier = Modifier
-                .matchParentSize()
-                .clip(RoundedCornerShape(12.dp))
-                .background(DangerColor.copy(alpha = 0.14f))
-                .padding(horizontal = 14.dp),
-            contentAlignment = Alignment.CenterEnd,
+                .fillMaxWidth()
+                .height(rowHeight)
+                .zIndex(if (dragging) 1f else 0f),
         ) {
-            Text("Delete", color = DangerColor, fontWeight = FontWeight.SemiBold)
-        }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DangerColor.copy(alpha = 0.14f))
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Text("Delete", color = DangerColor, fontWeight = FontWeight.SemiBold)
+            }
 
-        Row(
-            modifier = Modifier
-                .matchParentSize()
-                .graphicsLayer {
-                    translationX = animatedSwipeX
-                    translationY = animatedDragY
-                    scaleX = if (dragging) 1.01f else 1f
-                    scaleY = if (dragging) 1.01f else 1f
-                }
-                .clip(RoundedCornerShape(12.dp))
-                .background(rowBackground)
-                .border(BorderStroke(1.dp, border), RoundedCornerShape(12.dp))
-                .pointerInput(canEdit, track.id()) {
-                    if (!canEdit) {
-                        return@pointerInput
+            Row(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        translationX = animatedSwipeX
+                        translationY = animatedDragY
+                        scaleX = if (dragging) 1.01f else 1f
+                        scaleY = if (dragging) 1.01f else 1f
                     }
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = {
-                            dragging = true
-                            swipeOffsetX = 0f
-                        },
-                        onDragEnd = {
-                            val targetIndex = (index + (dragOffsetY / rowHeightPx).roundToInt())
-                                .coerceIn(0, totalTracks - 1)
-                            if (targetIndex != index) {
-                                onMove(targetIndex)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(rowBackground)
+                    .border(BorderStroke(1.dp, border), RoundedCornerShape(12.dp))
+                    .pointerInput(canEdit, track.id(), index) {
+                        if (!canEdit) {
+                            return@pointerInput
+                        }
+                        detectDragGestures(
+                            onDragStart = {
+                                swipeOffsetX = 0f
+                            },
+                            onDragEnd = {
+                                if (swipeOffsetX < -76f) {
+                                    onRemove()
+                                }
+                                swipeOffsetX = 0f
+                            },
+                            onDragCancel = {
+                                swipeOffsetX = 0f
+                            },
+                        ) { change, dragAmount ->
+                            if (!dragging && kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                                change.consume()
+                                swipeOffsetX = (swipeOffsetX + dragAmount.x).coerceIn(-112f, 20f)
                             }
-                            dragOffsetY = 0f
-                            dragging = false
-                        },
-                        onDragCancel = {
-                            dragOffsetY = 0f
-                            dragging = false
-                        },
-                    ) { change, dragAmount ->
-                        change.consume()
-                        dragOffsetY += dragAmount.y
-                    }
-                }
-                .pointerInput(canEdit, track.id()) {
-                    if (!canEdit) {
-                        return@pointerInput
-                    }
-                    detectDragGestures(
-                        onDragStart = {
-                            swipeOffsetX = 0f
-                        },
-                        onDragEnd = {
-                            if (swipeOffsetX < -76f) {
-                                onRemove()
-                            }
-                            swipeOffsetX = 0f
-                        },
-                        onDragCancel = {
-                            swipeOffsetX = 0f
-                        },
-                    ) { change, dragAmount ->
-                        if (!dragging && kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
-                            change.consume()
-                            swipeOffsetX = (swipeOffsetX + dragAmount.x).coerceIn(-112f, 20f)
                         }
                     }
-                }
-                .clickable(
-                    enabled = canEdit,
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onSelect,
-                )
-                .padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = (index + 1).toString().padStart(2, '0'),
-                color = if (selected) AccentColor else SecondaryText,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.caption,
-            )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    .clickable(
+                        enabled = canEdit,
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = onSelect,
+                    )
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    text = track.title(),
-                    color = PrimaryText,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = track.sourceUrl(),
-                    color = SecondaryText,
+                    text = (index + 1).toString().padStart(2, '0'),
+                    color = if (selected) AccentColor else SecondaryText,
+                    fontWeight = FontWeight.SemiBold,
                     style = MaterialTheme.typography.caption,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
-            }
-            if (canEdit) {
-                Text("::", color = SecondaryText, style = MaterialTheme.typography.overline)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = track.title(),
+                        color = PrimaryText,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = track.sourceUrl(),
+                        color = SecondaryText,
+                        style = MaterialTheme.typography.caption,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (canEdit) {
+                    Text(
+                        text = "::",
+                        color = SecondaryText,
+                        style = MaterialTheme.typography.overline,
+                        modifier = Modifier.pointerInput(canEdit, track.id(), index, totalTracks) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = {
+                                    dragging = true
+                                    swipeOffsetX = 0f
+                                },
+                                onDragEnd = {
+                                    val targetIndex = (index + (dragOffsetY / rowHeightPx).roundToInt())
+                                        .coerceIn(0, totalTracks - 1)
+                                    if (targetIndex != index) {
+                                        onMove(targetIndex)
+                                    }
+                                    dragOffsetY = 0f
+                                    dragging = false
+                                },
+                                onDragCancel = {
+                                    dragOffsetY = 0f
+                                    dragging = false
+                                },
+                            ) { change, dragAmount ->
+                                change.consume()
+                                dragOffsetY += dragAmount.y
+                            }
+                        },
+                    )
+                }
             }
         }
     }

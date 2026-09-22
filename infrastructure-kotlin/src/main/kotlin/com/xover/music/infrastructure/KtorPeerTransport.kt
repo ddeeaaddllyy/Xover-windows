@@ -24,6 +24,7 @@ import io.ktor.server.netty.NettyApplicationEngine
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import io.ktor.server.plugins.origin
 import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.server.websocket.WebSockets as ServerWebSockets
 import io.ktor.server.websocket.webSocket
@@ -76,7 +77,8 @@ class KtorPeerTransport : PeerTransportPort {
                         call.respondText("Xover host is alive")
                     }
                     webSocket("/sync") {
-                        val peerId = "client-${nextPeerNumber.getAndIncrement()}"
+                        val peerNumber = nextPeerNumber.getAndIncrement()
+                        val peerId = "client-$peerNumber (${call.request.origin.remoteHost})"
                         serverSessions.add(this)
                         serverPeerIds[this] = peerId
                         listenerRef.get().onPeerConnected(peerId)
@@ -161,6 +163,19 @@ class KtorPeerTransport : PeerTransportPort {
         serverSessions.forEach { session ->
             sendFrame(session, payload, serverPeerIds[session] ?: "peer")
         }
+    }
+
+    override fun disconnectPeer(peerId: String) {
+        serverPeerIds.entries
+            .firstOrNull { (_, candidatePeerId) -> candidatePeerId == peerId }
+            ?.key
+            ?.let { session ->
+                serverSessions.remove(session)
+                serverPeerIds.remove(session)
+                scope.launch {
+                    session.close()
+                }
+            }
     }
 
     override fun disconnect() {

@@ -151,6 +151,11 @@ class DesktopApplication(
                                     sessionService.disconnect()
                                 }
                             },
+                            onDisconnectPeer = { peerId ->
+                                reportUiFailure(errorReporter, "Disconnect listener") {
+                                    sessionService.disconnectPeer(peerId)
+                                }
+                            },
                         )
                     }
                 }

@@ -6,12 +6,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xover.music.domain.ConnectionStatus
+import com.xover.music.domain.DeviceRole
 import com.xover.music.domain.SessionViewState
 
 @Composable
-internal fun StatusTab(state: SessionViewState) {
+internal fun StatusTab(
+    state: SessionViewState,
+    onDisconnectPeer: (String) -> Unit,
+) {
     Section("Session state") {
         StatusRow("Role", state.role().name)
         StatusRow("Network", state.connectionStatus().name)
@@ -25,7 +30,11 @@ internal fun StatusTab(state: SessionViewState) {
             Text("No listeners connected", color = SecondaryText, style = MaterialTheme.typography.caption)
         } else {
             state.connectedPeerIds().forEach { peerId ->
-                Text(peerId, color = PrimaryText, fontWeight = FontWeight.Medium)
+                ConnectedPeerRow(
+                    peerId = peerId,
+                    canDisconnect = state.role() == DeviceRole.HOST,
+                    onDisconnectPeer = onDisconnectPeer,
+                )
             }
         }
     }
@@ -43,6 +52,7 @@ internal fun MoreTab(
     onPinnedChange: (Boolean) -> Unit,
     onOpacityChange: (Float) -> Unit,
     onDisconnect: () -> Unit,
+    onDisconnectPeer: (String) -> Unit,
     onCollapse: () -> Unit,
     onMinimize: () -> Unit,
 ) {
@@ -54,6 +64,22 @@ internal fun MoreTab(
             enabled = state.connectionStatus() != ConnectionStatus.DISCONNECTED,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+
+    if (state.role() == DeviceRole.HOST) {
+        Section("Listeners") {
+            if (state.connectedPeerIds().isEmpty()) {
+                Text("No listeners connected", color = SecondaryText, style = MaterialTheme.typography.caption)
+            } else {
+                state.connectedPeerIds().forEach { peerId ->
+                    ConnectedPeerRow(
+                        peerId = peerId,
+                        canDisconnect = true,
+                        onDisconnectPeer = onDisconnectPeer,
+                    )
+                }
+            }
+        }
     }
 
     Section("Panel") {
@@ -75,6 +101,34 @@ internal fun MoreTab(
             SoftButton("Collapse", onCollapse, modifier = Modifier.weight(1f))
             SoftButton("Minimize", onMinimize, modifier = Modifier.weight(1f))
         }
+    }
+}
+
+@Composable
+internal fun ConnectedPeerRow(
+    peerId: String,
+    canDisconnect: Boolean,
+    onDisconnectPeer: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = peerId,
+            color = PrimaryText,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        SoftButton(
+            text = "Kick",
+            onClick = { onDisconnectPeer(peerId) },
+            enabled = canDisconnect,
+            modifier = Modifier.width(82.dp),
+        )
     }
 }
 
