@@ -2,18 +2,11 @@
 
 Transport is WebSocket JSON over Ktor.
 
-Default host port:
+Default host port: 47321
 
-```text
-47321
-```
-
-Routes:
-
-```text
+Routes: 
 GET /health
 WS  /sync
-```
 
 ## Message Shape
 

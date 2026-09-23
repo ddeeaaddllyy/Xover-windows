@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xover.music.domain.SessionViewState
 import java.awt.Window as AwtWindow
+
 @Composable
 internal fun TopBar(
     state: SessionViewState,
@@ -141,4 +142,3 @@ internal fun TabButton(
         Text(tab.title, color = foreground, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
-

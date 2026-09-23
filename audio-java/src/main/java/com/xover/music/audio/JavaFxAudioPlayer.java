@@ -4,6 +4,7 @@ import com.xover.music.application.audio.AudioPlayerListener;
 import com.xover.music.application.audio.AudioPlayerPort;
 import com.xover.music.application.audio.error.AudioPlaybackException;
 import com.xover.music.application.common.error.XoverException;
+import com.xover.music.audio.resolver.MediaResolver;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.media.Media;
@@ -26,7 +27,7 @@ public final class JavaFxAudioPlayer implements AudioPlayerPort {
     private static final AtomicBoolean TOOLKIT_STARTED = new AtomicBoolean(false);
 
     private final AtomicReference<MediaPlayer> player = new AtomicReference<>();
-    private final SoundCloudMediaResolver mediaResolver = new SoundCloudMediaResolver();
+    private final MediaResolver mediaResolver = new MediaResolver();
     private final ExecutorService resolverExecutor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "xover-media-resolver");
         thread.setDaemon(true);

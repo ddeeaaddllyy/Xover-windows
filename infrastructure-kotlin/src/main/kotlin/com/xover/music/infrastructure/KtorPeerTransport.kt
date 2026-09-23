@@ -158,6 +158,17 @@ class KtorPeerTransport : PeerTransportPort {
         }
     }
 
+    override fun sendToPeer(peerId: String, message: PeerMessage) {
+        val payload = encodeMessage(message) ?: return
+        val session = serverPeerIds.entries
+            .firstOrNull { (_, candidatePeerId) -> candidatePeerId == peerId }
+            ?.key
+
+        if (session != null) {
+            sendFrame(session, payload, peerId)
+        }
+    }
+
     override fun broadcast(message: PeerMessage) {
         val payload = encodeMessage(message) ?: return
         serverSessions.forEach { session ->

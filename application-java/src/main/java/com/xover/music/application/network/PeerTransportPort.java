@@ -9,6 +9,10 @@ public interface PeerTransportPort extends AutoCloseable {
 
     void send(PeerMessage message);
 
+    default void sendToPeer(String peerId, PeerMessage message) {
+        send(message);
+    }
+
     void broadcast(PeerMessage message);
 
     void disconnectPeer(String peerId);

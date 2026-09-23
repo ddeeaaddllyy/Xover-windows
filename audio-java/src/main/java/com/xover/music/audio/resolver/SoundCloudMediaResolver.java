@@ -1,4 +1,4 @@
-package com.xover.music.audio;
+package com.xover.music.audio.resolver;
 
 import com.xover.music.application.audio.error.AudioPlaybackException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -26,13 +26,15 @@ import java.util.regex.Pattern;
 
 final class SoundCloudMediaResolver {
     private static final Pattern SCRIPT_PATTERN = Pattern.compile(
-        "<script[^>]+src=[\"'](https://a-v2\\.sndcdn\\.com/assets/[^\"']+\\.js)[\"']",
+        "<script[^>]+src=[\"']([^\"']+\\.js)[\"']",
         Pattern.CASE_INSENSITIVE
     );
     private static final Pattern CLIENT_ID_PATTERN = Pattern.compile(
         "[\"']?(?:client_id|clientId)[\"']?\\s*[:=]\\s*[\"']([A-Za-z0-9]{32})[\"']"
     );
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Xover/1.2";
+    private static final String USER_AGENT =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            + "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
     private static final String ACCEPT_HEADER = "application/json,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
     private static final String CURL_EFFECTIVE_URL_MARKER = "\nXOVER_EFFECTIVE_URL:";
 
@@ -44,7 +46,7 @@ final class SoundCloudMediaResolver {
     private final AtomicReference<String> cachedClientId = new AtomicReference<>("");
 
     URI resolve(URI mediaUri) {
-        if (!isSoundCloudPage(mediaUri)) {
+        if (!MediaSourceDetector.isSoundCloudPage(mediaUri)) {
             return mediaUri;
         }
 
@@ -77,7 +79,8 @@ final class SoundCloudMediaResolver {
         String resolveUrl = "https://api-v2.soundcloud.com/resolve?url="
             + URLEncoder.encode(pageUrl, StandardCharsets.UTF_8)
             + "&client_id="
-            + URLEncoder.encode(clientId, StandardCharsets.UTF_8);
+            + URLEncoder.encode(clientId, StandardCharsets.UTF_8)
+            + "&app_locale=en";
         JsonNode resolved = readJson(URI.create(resolveUrl));
         JsonNode transcodings = resolved.path("media").path("transcodings");
         if (!transcodings.isArray() || transcodings.isEmpty()) {
@@ -91,7 +94,7 @@ final class SoundCloudMediaResolver {
             throw new IOException("SoundCloud stream URL is empty");
         }
 
-        JsonNode streamInfo = readJson(URI.create(withClientId(transcodingUrl, clientId)));
+        JsonNode streamInfo = readJson(URI.create(withSoundCloudParams(transcodingUrl, clientId)));
         String streamUrl = streamInfo.path("url").asText("");
         if (streamUrl.isBlank()) {
             throw new IOException("SoundCloud stream endpoint returned no URL");
@@ -145,7 +148,12 @@ final class SoundCloudMediaResolver {
         Matcher scriptMatcher = SCRIPT_PATTERN.matcher(page);
         List<String> scripts = new ArrayList<>();
         while (scriptMatcher.find()) {
-            scripts.add(scriptMatcher.group(1));
+            normalizeScriptUri(scriptMatcher.group(1)).ifPresent(scriptUri -> {
+                String value = scriptUri.toString();
+                if (!scripts.contains(value)) {
+                    scripts.add(value);
+                }
+            });
         }
 
         for (int i = scripts.size() - 1; i >= 0; i--) {
@@ -182,6 +190,8 @@ final class SoundCloudMediaResolver {
         HttpRequest request = HttpRequest.newBuilder(uri)
             .timeout(Duration.ofSeconds(20))
             .header("Accept", ACCEPT_HEADER)
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Referer", "https://soundcloud.com/")
             .header("User-Agent", USER_AGENT)
             .GET()
             .build();
@@ -204,12 +214,18 @@ final class SoundCloudMediaResolver {
             "-L",
             "--silent",
             "--show-error",
+            "--compressed",
+            "--http1.1",
             "--max-time",
             "35",
             "-A",
             USER_AGENT,
             "-H",
             "Accept: " + ACCEPT_HEADER,
+            "-H",
+            "Accept-Language: en-US,en;q=0.9",
+            "-H",
+            "Referer: https://soundcloud.com/",
             "-w",
             CURL_EFFECTIVE_URL_MARKER + "%{url_effective}",
             uri.toString()
@@ -260,20 +276,33 @@ final class SoundCloudMediaResolver {
         }
     }
 
-    private boolean isSoundCloudPage(URI uri) {
-        String host = uri.getHost();
-        if (host == null) {
-            return false;
+    private Optional<URI> normalizeScriptUri(String scriptSrc) {
+        if (scriptSrc == null || scriptSrc.isBlank()) {
+            return Optional.empty();
         }
-        String normalizedHost = host.toLowerCase(Locale.ROOT);
-        return normalizedHost.endsWith("soundcloud.com")
-            && !normalizedHost.startsWith("api.")
-            && !normalizedHost.startsWith("api-v2.");
+        String normalized = scriptSrc.trim();
+        if (normalized.startsWith("//")) {
+            normalized = "https:" + normalized;
+        } else if (normalized.startsWith("/assets/")) {
+            normalized = "https://a-v2.sndcdn.com" + normalized;
+        }
+        if (!normalized.contains("a-v2.sndcdn.com/assets/")) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(URI.create(normalized));
+        } catch (IllegalArgumentException ex) {
+            return Optional.empty();
+        }
     }
 
-    private String withClientId(String url, String clientId) {
+    private String withSoundCloudParams(String url, String clientId) {
         String separator = url.contains("?") ? "&" : "?";
-        return url + separator + "client_id=" + URLEncoder.encode(clientId, StandardCharsets.UTF_8);
+        return url
+            + separator
+            + "client_id="
+            + URLEncoder.encode(clientId, StandardCharsets.UTF_8)
+            + "&app_locale=en";
     }
 
     private String curlCommand() {

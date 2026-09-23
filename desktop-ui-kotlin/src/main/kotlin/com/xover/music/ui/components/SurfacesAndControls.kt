@@ -5,11 +5,13 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
@@ -18,13 +20,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.xover.music.domain.ConnectionStatus
 import java.awt.MouseInfo
 import java.awt.Point
@@ -98,6 +101,77 @@ internal fun StatusDot(status: ConnectionStatus) {
             .size(11.dp)
             .clip(CircleShape)
             .background(color),
+    )
+}
+
+@Composable
+internal fun CompactUrlField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val hovered by interactionSource.collectIsHoveredAsState()
+    val focused by interactionSource.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(14.dp)
+    val background by animateColorAsState(
+        targetValue = when {
+            !enabled -> SoftLayerColor.copy(alpha = 0.46f)
+            focused -> SurfaceColor
+            hovered -> SurfaceColor.copy(alpha = 0.94f)
+            else -> SurfaceColor.copy(alpha = 0.82f)
+        },
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "compactFieldBackground",
+    )
+    val border by animateColorAsState(
+        targetValue = when {
+            !enabled -> BorderColor.copy(alpha = 0.48f)
+            focused -> AccentColor.copy(alpha = 0.68f)
+            hovered -> BorderColor
+            else -> BorderColor.copy(alpha = 0.78f)
+        },
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "compactFieldBorder",
+    )
+
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(44.dp)
+            .clip(shape)
+            .background(background)
+            .border(BorderStroke(1.dp, border), shape)
+            .hoverable(interactionSource = interactionSource, enabled = enabled),
+        enabled = enabled,
+        singleLine = true,
+        interactionSource = interactionSource,
+        cursorBrush = SolidColor(AccentColor),
+        textStyle = MaterialTheme.typography.body2.copy(
+            color = if (enabled) PrimaryText else SecondaryText,
+            fontWeight = FontWeight.Medium,
+        ),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (value.isBlank()) {
+                    Text(
+                        text = placeholder,
+                        color = SecondaryText.copy(alpha = if (enabled) 0.82f else 0.5f),
+                        style = MaterialTheme.typography.body2,
+                        maxLines = 1,
+                    )
+                }
+                innerTextField()
+            }
+        },
     )
 }
 
@@ -287,13 +361,82 @@ internal fun WindowControlButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = symbol,
-            color = Color.White,
-            fontFamily = FontFamily.SansSerif,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-        )
+        WindowControlGlyph(symbol)
+    }
+}
+
+@Composable
+private fun WindowControlGlyph(symbol: String) {
+    Canvas(modifier = Modifier.size(7.dp)) {
+        val strokeWidth = 1.3.dp.toPx()
+        val strokeColor = Color.White
+        val left = size.width * 0.2f
+        val right = size.width * 0.8f
+        val top = size.height * 0.2f
+        val bottom = size.height * 0.8f
+        val centerX = size.width / 2f
+        val centerY = size.height / 2f
+
+        when (symbol) {
+            "-" -> drawLine(
+                color = strokeColor,
+                start = Offset(left, centerY),
+                end = Offset(right, centerY),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round,
+            )
+
+            "x" -> {
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(left, top),
+                    end = Offset(right, bottom),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(right, top),
+                    end = Offset(left, bottom),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+            }
+
+            "<" -> {
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(right, top),
+                    end = Offset(left, centerY),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(left, centerY),
+                    end = Offset(right, bottom),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+            }
+
+            ">" -> {
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(left, top),
+                    end = Offset(right, centerY),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    color = strokeColor,
+                    start = Offset(right, centerY),
+                    end = Offset(left, bottom),
+                    strokeWidth = strokeWidth,
+                    cap = StrokeCap.Round,
+                )
+            }
+        }
     }
 }
 

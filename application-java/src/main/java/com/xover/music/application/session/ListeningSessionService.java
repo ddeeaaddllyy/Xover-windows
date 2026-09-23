@@ -391,7 +391,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
 
         if (state.role() == DeviceRole.HOST && hostConfig != null) {
-            broadcastPlaylist();
+            sendPlaylistToPeer(peerId);
         }
 
         if (state.role() == DeviceRole.CLIENT) {
@@ -512,6 +512,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         if (state.role() == DeviceRole.HOST) {
             transport.broadcast(PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex()));
         }
+    }
+
+    private void sendPlaylistToPeer(String peerId) {
+        transport.sendToPeer(peerId, PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex()));
     }
 
     private PlaybackStatus nextPlaylistStatus(SessionViewState previous, PeerMessage message, boolean[] trackChanged) {

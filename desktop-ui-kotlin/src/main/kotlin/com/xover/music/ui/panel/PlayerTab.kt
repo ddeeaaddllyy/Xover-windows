@@ -67,12 +67,11 @@ internal fun PlayerTab(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            OutlinedTextField(
+            CompactUrlField(
                 value = trackUrl,
                 onValueChange = { trackUrl = it },
-                label = { Text("SoundCloud or audio URL") },
+                placeholder = "Audio URL..",
                 modifier = Modifier.weight(1f),
-                singleLine = true,
                 enabled = canEditPlaylist,
             )
             PrimaryButton(
