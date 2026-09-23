@@ -8,6 +8,8 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
@@ -21,12 +23,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.xover.music.domain.DeviceRole
 import com.xover.music.domain.PlaybackStatus
 import com.xover.music.domain.PlaylistTrack
 import com.xover.music.domain.SessionViewState
+import kotlinx.coroutines.delay
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -198,6 +202,19 @@ internal fun PlaylistTrackRow(
     var swipeOffsetX by remember(track.id()) { mutableFloatStateOf(0f) }
     var dragOffsetY by remember(track.id()) { mutableFloatStateOf(0f) }
     var dragging by remember(track.id()) { mutableStateOf(false) }
+    var clickPulse by remember(track.id()) { mutableStateOf(false) }
+    var contextMenuOffset by remember(track.id()) { mutableStateOf<IntOffset?>(null) }
+    val rowInteractionSource = remember { MutableInteractionSource() }
+    val rowHovered by rowInteractionSource.collectIsHoveredAsState()
+    val rowPressed by rowInteractionSource.collectIsPressedAsState()
+
+    LaunchedEffect(clickPulse) {
+        if (clickPulse) {
+            delay(130)
+            clickPulse = false
+        }
+    }
+
     val animatedSwipeX by animateFloatAsState(
         targetValue = swipeOffsetX,
         animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
@@ -209,7 +226,12 @@ internal fun PlaylistTrackRow(
         label = "playlistDragY",
     )
     val rowBackground by animateColorAsState(
-        targetValue = if (selected) SurfaceColor else Color.White,
+        targetValue = when {
+            clickPulse -> AccentColor.copy(alpha = 0.13f)
+            selected -> AccentColor.copy(alpha = 0.08f)
+            rowHovered && canEdit -> SoftLayerColor.copy(alpha = 0.88f)
+            else -> Color.White.copy(alpha = 0.86f)
+        },
         animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "playlistRowBackground",
     )
@@ -218,136 +240,168 @@ internal fun PlaylistTrackRow(
         animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "playlistRowBorder",
     )
-
-    ContextMenuArea(
-        items = {
-            if (!canEdit) {
-                emptyList()
-            } else {
-                listOf(
-                    ContextMenuItem("Add again", onDuplicate),
-                    ContextMenuItem("Delete", onRemove),
-                )
-            }
+    val rowScale by animateFloatAsState(
+        targetValue = when {
+            dragging -> 1.012f
+            clickPulse -> 1.018f
+            rowPressed -> 0.992f
+            else -> 1f
         },
+        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+        label = "playlistRowScale",
+    )
+    val deleteRevealAlpha by animateFloatAsState(
+        targetValue = if (swipeOffsetX < -8f) 1f else 0f,
+        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+        label = "playlistDeleteReveal",
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(rowHeight)
+            .zIndex(if (dragging || contextMenuOffset != null) 1f else 0f),
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(rowHeight)
-                .zIndex(if (dragging) 1f else 0f),
+                .matchParentSize()
+                .graphicsLayer {
+                    alpha = deleteRevealAlpha
+                }
+                .clip(RoundedCornerShape(12.dp))
+                .background(DangerColor.copy(alpha = 0.14f))
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.CenterEnd,
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(DangerColor.copy(alpha = 0.14f))
-                    .padding(horizontal = 14.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) {
-                Text("Delete", color = DangerColor, fontWeight = FontWeight.SemiBold)
-            }
+            Text("Delete", color = DangerColor, fontWeight = FontWeight.SemiBold)
+        }
 
-            Row(
-                modifier = Modifier
-                    .matchParentSize()
-                    .graphicsLayer {
-                        translationX = animatedSwipeX
-                        translationY = animatedDragY
-                        scaleX = if (dragging) 1.01f else 1f
-                        scaleY = if (dragging) 1.01f else 1f
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    translationX = animatedSwipeX
+                    translationY = animatedDragY
+                    scaleX = rowScale
+                    scaleY = rowScale
+                }
+                .clip(RoundedCornerShape(12.dp))
+                .background(rowBackground)
+                .border(BorderStroke(1.dp, border), RoundedCornerShape(12.dp))
+                .playlistContextMenuTrigger(canEdit) { position ->
+                    swipeOffsetX = 0f
+                    contextMenuOffset = IntOffset(
+                        x = position.x.roundToInt() + 8,
+                        y = position.y.roundToInt() + 8,
+                    )
+                }
+                .pointerInput(canEdit, track.id(), index) {
+                    if (!canEdit) {
+                        return@pointerInput
                     }
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(rowBackground)
-                    .border(BorderStroke(1.dp, border), RoundedCornerShape(12.dp))
-                    .pointerInput(canEdit, track.id(), index) {
-                        if (!canEdit) {
-                            return@pointerInput
+                    detectDragGestures(
+                        onDragStart = {
+                            swipeOffsetX = 0f
+                            contextMenuOffset = null
+                        },
+                        onDragEnd = {
+                            if (swipeOffsetX < -76f) {
+                                onRemove()
+                            }
+                            swipeOffsetX = 0f
+                        },
+                        onDragCancel = {
+                            swipeOffsetX = 0f
+                        },
+                    ) { change, dragAmount ->
+                        if (!dragging && kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
+                            change.consume()
+                            swipeOffsetX = (swipeOffsetX + dragAmount.x).coerceIn(-112f, 20f)
                         }
-                        detectDragGestures(
+                    }
+                }
+                .hoverable(rowInteractionSource, enabled = canEdit)
+                .clickable(
+                    enabled = canEdit,
+                    indication = null,
+                    interactionSource = rowInteractionSource,
+                    onClick = {
+                        contextMenuOffset = null
+                        clickPulse = true
+                        onSelect()
+                    },
+                )
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = (index + 1).toString().padStart(2, '0'),
+                color = if (selected) AccentColor else SecondaryText,
+                fontWeight = FontWeight.SemiBold,
+                style = MaterialTheme.typography.caption,
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = track.title(),
+                    color = PrimaryText,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = track.sourceUrl(),
+                    color = SecondaryText,
+                    style = MaterialTheme.typography.caption,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (canEdit) {
+                Text(
+                    text = "::",
+                    color = SecondaryText,
+                    style = MaterialTheme.typography.overline,
+                    modifier = Modifier.pointerInput(canEdit, track.id(), index, totalTracks) {
+                        detectDragGesturesAfterLongPress(
                             onDragStart = {
+                                dragging = true
                                 swipeOffsetX = 0f
+                                contextMenuOffset = null
                             },
                             onDragEnd = {
-                                if (swipeOffsetX < -76f) {
-                                    onRemove()
+                                val targetIndex = (index + (dragOffsetY / rowHeightPx).roundToInt())
+                                    .coerceIn(0, totalTracks - 1)
+                                if (targetIndex != index) {
+                                    onMove(targetIndex)
                                 }
-                                swipeOffsetX = 0f
+                                dragOffsetY = 0f
+                                dragging = false
                             },
                             onDragCancel = {
-                                swipeOffsetX = 0f
+                                dragOffsetY = 0f
+                                dragging = false
                             },
                         ) { change, dragAmount ->
-                            if (!dragging && kotlin.math.abs(dragAmount.x) > kotlin.math.abs(dragAmount.y)) {
-                                change.consume()
-                                swipeOffsetX = (swipeOffsetX + dragAmount.x).coerceIn(-112f, 20f)
-                            }
+                            change.consume()
+                            dragOffsetY += dragAmount.y
                         }
-                    }
-                    .clickable(
-                        enabled = canEdit,
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                        onClick = onSelect,
-                    )
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = (index + 1).toString().padStart(2, '0'),
-                    color = if (selected) AccentColor else SecondaryText,
-                    fontWeight = FontWeight.SemiBold,
-                    style = MaterialTheme.typography.caption,
+                    },
                 )
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = track.title(),
-                        color = PrimaryText,
-                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = track.sourceUrl(),
-                        color = SecondaryText,
-                        style = MaterialTheme.typography.caption,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (canEdit) {
-                    Text(
-                        text = "::",
-                        color = SecondaryText,
-                        style = MaterialTheme.typography.overline,
-                        modifier = Modifier.pointerInput(canEdit, track.id(), index, totalTracks) {
-                            detectDragGesturesAfterLongPress(
-                                onDragStart = {
-                                    dragging = true
-                                    swipeOffsetX = 0f
-                                },
-                                onDragEnd = {
-                                    val targetIndex = (index + (dragOffsetY / rowHeightPx).roundToInt())
-                                        .coerceIn(0, totalTracks - 1)
-                                    if (targetIndex != index) {
-                                        onMove(targetIndex)
-                                    }
-                                    dragOffsetY = 0f
-                                    dragging = false
-                                },
-                                onDragCancel = {
-                                    dragOffsetY = 0f
-                                    dragging = false
-                                },
-                            ) { change, dragAmount ->
-                                change.consume()
-                                dragOffsetY += dragAmount.y
-                            }
-                        },
-                    )
-                }
             }
+        }
+
+        contextMenuOffset?.let { menuOffset ->
+            PlaylistTrackContextMenu(
+                offset = menuOffset,
+                onDismiss = { contextMenuOffset = null },
+                onSelect = {
+                    clickPulse = true
+                    onSelect()
+                },
+                onDuplicate = onDuplicate,
+                onRemove = onRemove,
+            )
         }
     }
 }
