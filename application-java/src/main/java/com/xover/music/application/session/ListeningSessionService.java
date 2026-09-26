@@ -10,6 +10,7 @@ import com.xover.music.application.network.error.RemoteProtocolException;
 import com.xover.music.application.common.error.UnexpectedXoverException;
 import com.xover.music.application.common.error.XoverException;
 import com.xover.music.application.network.HostStartupConfig;
+import com.xover.music.application.network.MessageType;
 import com.xover.music.application.network.PeerAddress;
 import com.xover.music.application.network.PeerMessage;
 import com.xover.music.application.network.PeerTransportListener;
@@ -53,6 +54,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     private volatile SessionViewState state = SessionViewState.idle();
     private volatile HostStartupConfig hostConfig;
     private volatile ScheduledFuture<?> timeSyncTask;
+    private volatile ScheduledFuture<?> pendingPlayTask;
 
     public ListeningSessionService(
         AudioPlayerPort audioPlayer,
@@ -280,6 +282,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     public void pause() {
+        stopPendingPlayTask();
         long positionMillis = toMillis(audioPlayer.currentPosition());
         audioPlayer.pause();
         updateState(previous -> previous
@@ -294,6 +297,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     public void seek(long positionMillis) {
+        stopPendingPlayTask();
         long normalizedPosition = Math.max(0L, positionMillis);
         audioPlayer.seek(Duration.ofMillis(normalizedPosition));
         updateState(previous -> previous
@@ -308,6 +312,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     public void disconnect() {
         stopTimeSyncLoop();
+        stopPendingPlayTask();
         hostConfig = null;
         audioPlayer.stop();
         transport.disconnect();
@@ -429,6 +434,11 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         long receivedAtMillis = clock.nowMillis();
 
         try {
+            if (!isRemoteMessageAllowed(message.type(), state.role())) {
+                updateState(previous -> previous.withMessage("Ignored unexpected peer message: " + message.type()));
+                return;
+            }
+
             switch (message.type()) {
                 case PLAYLIST_UPDATED -> applyRemotePlaylist(message);
                 case TRACK_SELECTED -> loadRemoteTrack(message);
@@ -451,6 +461,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     @Override
     public void close() {
         stopTimeSyncLoop();
+        stopPendingPlayTask();
         try {
             transport.close();
         } finally {
@@ -461,6 +472,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     private void loadRemoteTrack(PeerMessage message) {
         try {
+            stopPendingPlayTask();
             updateState(previous -> previous
                 .withPlaybackStatus(PlaybackStatus.LOADING)
                 .withTrack(message.trackName(), 0L)
@@ -481,6 +493,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 .withMessage(message.playlist().isEmpty() ? "Playlist is empty" : "Playlist updated")
             );
             if (trackChanged[0]) {
+                stopPendingPlayTask();
                 loadCurrentPlaylistTrack("Loading playlist track");
             }
         } catch (RuntimeException ex) {
@@ -489,6 +502,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     private void loadCurrentPlaylistTrack(String loadingMessage) {
+        stopPendingPlayTask();
         PlaylistTrack track = state.currentTrack();
         if (track == null) {
             audioPlayer.stop();
@@ -553,6 +567,22 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             );
     }
 
+    private boolean isRemoteMessageAllowed(MessageType type, DeviceRole role) {
+        if (type == null) {
+            return false;
+        }
+        return switch (role) {
+            case HOST -> type == MessageType.TIME_SYNC_REQUEST;
+            case CLIENT -> type == MessageType.PLAYLIST_UPDATED
+                || type == MessageType.TRACK_SELECTED
+                || type == MessageType.PLAY_AT
+                || type == MessageType.PAUSE
+                || type == MessageType.SEEK
+                || type == MessageType.TIME_SYNC_RESPONSE;
+            case IDLE -> false;
+        };
+    }
+
     private List<String> addPeer(List<String> peers, String peerId) {
         List<String> nextPeers = new ArrayList<>(peers);
         if (!nextPeers.contains(peerId)) {
@@ -568,12 +598,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     private void schedulePlay(long positionMillis, long startAtHostMillis) {
+        stopPendingPlayTask();
         long localNow = clock.nowMillis();
         long delayMillis = state.role() == DeviceRole.CLIENT
             ? clockSynchronizer.localDelayUntilHostTime(startAtHostMillis, localNow)
             : Math.max(0L, startAtHostMillis - localNow);
 
-        scheduler.schedule(() -> {
+        pendingPlayTask = scheduler.schedule(() -> {
+            pendingPlayTask = null;
             audioPlayer.seek(Duration.ofMillis(Math.max(0L, positionMillis)));
             audioPlayer.play();
             updateState(previous -> previous
@@ -587,6 +619,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     private void pauseFromRemote(long positionMillis) {
+        stopPendingPlayTask();
         audioPlayer.pause();
         audioPlayer.seek(Duration.ofMillis(Math.max(0L, positionMillis)));
         updateState(previous -> previous
@@ -597,6 +630,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     private void seekFromRemote(long positionMillis) {
+        stopPendingPlayTask();
         audioPlayer.seek(Duration.ofMillis(Math.max(0L, positionMillis)));
         updateState(previous -> previous
             .withPosition(positionMillis)
@@ -653,6 +687,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         if (task != null) {
             task.cancel(true);
             timeSyncTask = null;
+        }
+    }
+
+    private void stopPendingPlayTask() {
+        ScheduledFuture<?> task = pendingPlayTask;
+        if (task != null) {
+            task.cancel(false);
+            pendingPlayTask = null;
         }
     }
 
@@ -751,7 +793,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
     }
 
-    private long toMillis(Duration duration) {
+    public static long toMillis(Duration duration) {
         if (duration == null || duration.isNegative()) {
             return 0L;
         }
