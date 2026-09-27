@@ -28,13 +28,12 @@ internal fun TopBar(
     onClose: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .windowDrag(awtWindow),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
+            modifier = Modifier.weight(1f).windowDrag(awtWindow),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -54,9 +53,9 @@ internal fun TopBar(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WindowControlButton("<", ControlGreen, onCollapse, shakeOnHover = true)
-            WindowControlButton("-", ControlYellow, onMinimize, shakeOnHover = true)
-            WindowControlButton("x", ControlRed, onClose, shakeOnHover = true)
+            WindowControlButton("<", ControlGreen, onCollapse)
+            WindowControlButton("-", ControlYellow, onMinimize)
+            WindowControlButton("x", ControlRed, onClose)
         }
     }
 }
@@ -81,7 +80,7 @@ internal fun TabStrip(
         val indicatorWidth = (maxWidth - tabSpacing * (tabs.size - 1)) / tabs.size
         val indicatorOffset by animateDpAsState(
             targetValue = (indicatorWidth + tabSpacing) * selectedIndex,
-            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+            animationSpec = gentleMotion(),
             label = "tabIndicatorOffset",
         )
 
@@ -122,7 +121,7 @@ internal fun TabButton(
     val hovered by interactionSource.collectIsHoveredAsState()
     val lift by animateDpAsState(
         targetValue = if (hovered && !selected) (-1).dp else 0.dp,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "tabButtonLift",
     )
 

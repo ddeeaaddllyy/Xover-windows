@@ -29,12 +29,31 @@ jobs:
 
       - name: Build release artifacts
         shell: pwsh
-        run: .\gradlew.bat clean build --no-daemon
+        run: .\gradlew.bat clean build :app:releaseObfuscated --no-daemon
+
+      - name: Retain obfuscation mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: xover-obfuscation-mapping
+          path: app/build/obfuscated-release/mapping.txt
+          if-no-files-found: error
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem app/build/distributions -File |
+            Where-Object { $_.Extension -in '.zip', '.tar' } |
+            ForEach-Object {
+              $checksum = Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName
+              "$($checksum.Hash.ToLowerInvariant())  $($_.Name)"
+            } | Set-Content -Encoding utf8 app/build/distributions/SHA256SUMS.txt
 
       - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             app/build/distributions/*.zip
             app/build/distributions/*.tar
+            app/build/distributions/SHA256SUMS.txt
           generate_release_notes: true

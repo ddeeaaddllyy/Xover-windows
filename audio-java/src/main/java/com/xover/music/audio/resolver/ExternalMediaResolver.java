@@ -29,8 +29,8 @@ final class ExternalMediaResolver {
         );
         builder.redirectErrorStream(true);
 
+        Process process = builder.start();
         try {
-            Process process = builder.start();
             CompletableFuture<byte[]> output = CompletableFuture.supplyAsync(() -> {
                 try {
                     return process.getInputStream().readAllBytes();
@@ -65,6 +65,8 @@ final class ExternalMediaResolver {
                 throw new IOException("Could not read " + command.get() + " output", unchecked.getCause());
             }
             throw new IOException(command.get() + " failed", cause);
+        } finally {
+            if (process.isAlive()) process.destroyForcibly();
         }
     }
 

@@ -6,6 +6,7 @@ package com.xover.music.domain;
 public enum PlaybackStatus {
     STOPPED,
     LOADING,
+    WAITING,
     READY,
     PLAYING,
     PAUSED,

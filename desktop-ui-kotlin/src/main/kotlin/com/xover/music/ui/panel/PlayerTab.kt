@@ -1,18 +1,22 @@
 package com.xover.music.ui
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Slider
+import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,10 +55,11 @@ internal fun PlayerTab(
     val canEditPlaylist = state.role() != DeviceRole.CLIENT
     var trackUrl by remember { mutableStateOf("") }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
+    var seeking by remember { mutableStateOf(false) }
     var volumePosition by remember { mutableFloatStateOf(state.localVolumePercent().toFloat()) }
 
     LaunchedEffect(state.positionMillis()) {
-        sliderPosition = min(state.positionMillis(), duration).toFloat()
+        if (!seeking) sliderPosition = min(state.positionMillis(), duration).toFloat()
     }
 
     LaunchedEffect(state.localVolumePercent()) {
@@ -115,25 +120,28 @@ internal fun PlayerTab(
         )
         Slider(
             value = sliderPosition,
-            onValueChange = { sliderPosition = it },
-            onValueChangeFinished = { onSeek(sliderPosition.toLong()) },
+            onValueChange = { seeking = true; sliderPosition = it },
+            onValueChangeFinished = { onSeek(sliderPosition.toLong()); seeking = false },
             valueRange = 0f..duration.toFloat(),
             enabled = state.role() == DeviceRole.HOST && state.durationMillis() > 0L,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             PrimaryButton(
-                text = "Play",
+                text = if (state.playbackStatus() == PlaybackStatus.WAITING) "Waiting..." else "Play",
                 onClick = onPlay,
-                enabled = state.role() == DeviceRole.HOST && state.playbackStatus() != PlaybackStatus.LOADING,
+                enabled = state.role() == DeviceRole.HOST && state.currentTrack() != null
+                    && state.playbackStatus() !in setOf(PlaybackStatus.ERROR, PlaybackStatus.PLAYING, PlaybackStatus.WAITING),
                 modifier = Modifier.weight(1f),
             )
             SoftButton(
                 text = "Pause",
                 onClick = onPause,
-                enabled = state.playbackStatus() == PlaybackStatus.PLAYING,
+                enabled = state.role() == DeviceRole.HOST
+                    && state.playbackStatus() in setOf(PlaybackStatus.PLAYING, PlaybackStatus.WAITING),
                 modifier = Modifier.weight(1f),
             )
         }
+        Text(state.message(), color = SecondaryText, style = MaterialTheme.typography.caption)
     }
 
     Section("Local volume") {
@@ -201,6 +209,7 @@ internal fun PlaylistTrackRow(
     var swipeOffsetX by remember(track.id()) { mutableFloatStateOf(0f) }
     var dragOffsetY by remember(track.id()) { mutableFloatStateOf(0f) }
     var dragging by remember(track.id()) { mutableStateOf(false) }
+    var swiping by remember(track.id()) { mutableStateOf(false) }
     var clickPulse by remember(track.id()) { mutableStateOf(false) }
     var contextMenuOffset by remember(track.id()) { mutableStateOf<IntOffset?>(null) }
     val rowInteractionSource = remember { MutableInteractionSource() }
@@ -216,12 +225,12 @@ internal fun PlaylistTrackRow(
 
     val animatedSwipeX by animateFloatAsState(
         targetValue = swipeOffsetX,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "playlistSwipeX",
     )
     val animatedDragY by animateFloatAsState(
         targetValue = dragOffsetY,
-        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "playlistDragY",
     )
     val rowBackground by animateColorAsState(
@@ -231,12 +240,12 @@ internal fun PlaylistTrackRow(
             rowHovered && canEdit -> SoftLayerColor.copy(alpha = 0.88f)
             else -> Color.White.copy(alpha = 0.86f)
         },
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "playlistRowBackground",
     )
     val border by animateColorAsState(
         targetValue = if (selected) AccentColor.copy(alpha = 0.5f) else BorderColor.copy(alpha = 0.72f),
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "playlistRowBorder",
     )
     val rowScale by animateFloatAsState(
@@ -246,12 +255,12 @@ internal fun PlaylistTrackRow(
             rowPressed -> 0.992f
             else -> 1f
         },
-        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "playlistRowScale",
     )
     val deleteRevealAlpha by animateFloatAsState(
         targetValue = if (swipeOffsetX < -8f) 1f else 0f,
-        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "playlistDeleteReveal",
     )
 
@@ -279,8 +288,8 @@ internal fun PlaylistTrackRow(
             modifier = Modifier
                 .matchParentSize()
                 .graphicsLayer {
-                    translationX = animatedSwipeX
-                    translationY = animatedDragY
+                    translationX = if (swiping) swipeOffsetX else animatedSwipeX
+                    translationY = if (dragging) dragOffsetY else animatedDragY
                     scaleX = rowScale
                     scaleY = rowScale
                 }
@@ -300,16 +309,19 @@ internal fun PlaylistTrackRow(
                     }
                     detectDragGestures(
                         onDragStart = {
+                            swiping = true
                             swipeOffsetX = 0f
                             contextMenuOffset = null
                         },
                         onDragEnd = {
+                            swiping = false
                             if (swipeOffsetX < -76f) {
                                 onRemove()
                             }
                             swipeOffsetX = 0f
                         },
                         onDragCancel = {
+                            swiping = false
                             swipeOffsetX = 0f
                         },
                     ) { change, dragAmount ->
@@ -404,4 +416,3 @@ internal fun PlaylistTrackRow(
         }
     }
 }
-

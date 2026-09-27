@@ -6,7 +6,7 @@ import java.time.Duration;
 public interface AudioPlayerPort extends AutoCloseable {
     void setListener(AudioPlayerListener listener);
 
-    void load(URI mediaUri);
+    void load(URI mediaUri, String loadId);
 
     void play();
 

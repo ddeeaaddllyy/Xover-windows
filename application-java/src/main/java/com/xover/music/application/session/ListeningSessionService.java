@@ -28,6 +28,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledExecutorService;
@@ -42,6 +47,7 @@ import java.util.function.UnaryOperator;
 public final class ListeningSessionService implements PeerTransportListener, AudioPlayerListener, AutoCloseable {
     private static final long PLAY_SAFETY_DELAY_MILLIS = 750L;
     private static final long TIME_SYNC_PERIOD_SECONDS = 3L;
+    private static final long READY_TIMEOUT_SECONDS = 120L;
 
     private final AudioPlayerPort audioPlayer;
     private final PeerTransportPort transport;
@@ -55,6 +61,17 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     private volatile HostStartupConfig hostConfig;
     private volatile ScheduledFuture<?> timeSyncTask;
     private volatile ScheduledFuture<?> pendingPlayTask;
+    private ScheduledFuture<?> readinessTimeout;
+    private String loadId = "";
+    private boolean localReady;
+    private boolean localFailed;
+    private boolean readyAnnounced;
+    private boolean playRequested;
+    private long requestedPositionMillis;
+    private long playGeneration;
+    private final Set<String> readyPeers = new HashSet<>();
+    private final Set<String> failedPeers = new HashSet<>();
+    private final Map<String, Long> pendingClockSamples = new LinkedHashMap<>();
 
     public ListeningSessionService(
         AudioPlayerPort audioPlayer,
@@ -100,7 +117,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
         HostStartupConfig config = null;
         try {
-            config = new HostStartupConfig("0.0.0.0", advertisedHost, port);
+            PeerAddress address = new PeerAddress(advertisedHost, port);
+            config = new HostStartupConfig(address.host(), address.host(), address.port());
             hostConfig = config;
 
             updateState(previous -> previous
@@ -110,8 +128,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 .withMessage("Hosting on port " + port)
             );
 
-            transport.startHost(config);
             loadCurrentPlaylistTrack("Loading current track");
+            transport.startHost(config);
             broadcastPlaylist();
         } catch (XoverException ex) {
             fail(ex.title(), ex);
@@ -132,15 +150,21 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
         PeerAddress address = null;
         try {
-            hostConfig = null;
-            updateState(previous -> previous
-                .withRole(DeviceRole.CLIENT)
-                .withConnectionStatus(ConnectionStatus.CONNECTING)
-                .withPlaybackStatus(PlaybackStatus.STOPPED)
-                .withConnectedPeers(List.of())
-                .withMessage("Connecting to " + host + ":" + port)
-            );
             address = new PeerAddress(host, port);
+            synchronized (this) {
+                resetReadiness("");
+                clockSynchronizer.reset();
+                pendingClockSamples.clear();
+                audioPlayer.stop();
+                hostConfig = null;
+                updateState(previous -> previous
+                    .withRole(DeviceRole.CLIENT)
+                    .withConnectionStatus(ConnectionStatus.CONNECTING)
+                    .withPlaybackStatus(PlaybackStatus.STOPPED)
+                    .withConnectedPeers(List.of())
+                    .withMessage("Connecting to " + host + ":" + port)
+                );
+            }
             transport.connect(address);
         } catch (XoverException ex) {
             fail(ex.title(), ex);
@@ -149,7 +173,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
     }
 
-    public void addTrackUrl(String sourceUrl) {
+    public synchronized void addTrackUrl(String sourceUrl) {
         if (state.role() == DeviceRole.CLIENT) {
             updateState(previous -> previous.withMessage("Only host can edit the playlist"));
             return;
@@ -185,7 +209,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
     }
 
-    public void selectTrack(int trackIndex) {
+    public synchronized void selectTrack(int trackIndex) {
         if (state.role() == DeviceRole.CLIENT) {
             updateState(previous -> previous.withMessage("Only host can select playlist tracks"));
             return;
@@ -204,7 +228,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         broadcastPlaylist();
     }
 
-    public void removeTrackAt(int trackIndex) {
+    public synchronized void removeTrackAt(int trackIndex) {
         if (state.role() == DeviceRole.CLIENT) {
             updateState(previous -> previous.withMessage("Only host can edit the playlist"));
             return;
@@ -230,14 +254,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         });
 
         if (state.playlist().isEmpty()) {
-            audioPlayer.stop();
+            loadCurrentPlaylistTrack("Playlist is empty");
         } else if (removedCurrent) {
             loadCurrentPlaylistTrack("Loading next track");
         }
         broadcastPlaylist();
     }
 
-    public void moveTrack(int fromIndex, int toIndex) {
+    public synchronized void moveTrack(int fromIndex, int toIndex) {
         if (state.role() == DeviceRole.CLIENT) {
             updateState(previous -> previous.withMessage("Only host can edit the playlist"));
             return;
@@ -264,7 +288,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         broadcastPlaylist();
     }
 
-    public void play() {
+    public synchronized void play() {
         if (state.role() != DeviceRole.HOST) {
             updateState(previous -> previous.withMessage("Only host controls synchronized playback in this MVP"));
             return;
@@ -273,32 +297,45 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             updateState(previous -> previous.withMessage("Add a track before playback"));
             return;
         }
-
-        long positionMillis = toMillis(audioPlayer.currentPosition());
-        long startAtHostMillis = clock.nowMillis() + PLAY_SAFETY_DELAY_MILLIS;
-        PeerMessage message = PeerMessage.playAt(positionMillis, startAtHostMillis);
-        transport.broadcast(message);
-        schedulePlay(positionMillis, startAtHostMillis);
+        if (playRequested || pendingPlayTask != null || state.playbackStatus() == PlaybackStatus.PLAYING) {
+            return;
+        }
+        if (state.playbackStatus() == PlaybackStatus.ERROR || !failedPeers.isEmpty()) {
+            updateState(previous -> previous.withMessage("Track failed to load; select it again to retry"));
+            return;
+        }
+        playRequested = true;
+        requestedPositionMillis = state.positionMillis();
+        awaitReadiness();
     }
 
-    public void pause() {
+    public synchronized void pause() {
+        if (state.role() != DeviceRole.HOST) {
+            return;
+        }
+        cancelPlayRequest();
         stopPendingPlayTask();
         long positionMillis = toMillis(audioPlayer.currentPosition());
         audioPlayer.pause();
         updateState(previous -> previous
-            .withPlaybackStatus(PlaybackStatus.PAUSED)
+            .withPlaybackStatus(localReady ? PlaybackStatus.PAUSED : PlaybackStatus.LOADING)
             .withPosition(positionMillis)
             .withMessage("Paused")
         );
 
         if (state.role() == DeviceRole.HOST) {
-            transport.broadcast(PeerMessage.pause(positionMillis));
+            transport.broadcast(PeerMessage.pause(loadId, positionMillis));
         }
     }
 
-    public void seek(long positionMillis) {
+    public synchronized void seek(long positionMillis) {
+        if (state.role() != DeviceRole.HOST || !localReady) {
+            return;
+        }
+        boolean resume = state.playbackStatus() == PlaybackStatus.PLAYING || playRequested || pendingPlayTask != null;
+        pause();
         stopPendingPlayTask();
-        long normalizedPosition = Math.max(0L, positionMillis);
+        long normalizedPosition = Math.max(0L, Math.min(state.durationMillis(), positionMillis));
         audioPlayer.seek(Duration.ofMillis(normalizedPosition));
         updateState(previous -> previous
             .withPosition(normalizedPosition)
@@ -306,23 +343,28 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         );
 
         if (state.role() == DeviceRole.HOST) {
-            transport.broadcast(PeerMessage.seek(normalizedPosition));
+            transport.broadcast(PeerMessage.seek(loadId, normalizedPosition));
         }
+        if (resume) play();
     }
 
     public void disconnect() {
-        stopTimeSyncLoop();
-        stopPendingPlayTask();
-        hostConfig = null;
-        audioPlayer.stop();
+        synchronized (this) {
+            stopTimeSyncLoop();
+            resetReadiness("");
+            clockSynchronizer.reset();
+            pendingClockSamples.clear();
+            hostConfig = null;
+            audioPlayer.stop();
+            updateState(previous -> SessionViewState.idle()
+                .withLocalVolumePercent(previous.localVolumePercent())
+                .withMessage("Disconnected")
+            );
+        }
         transport.disconnect();
-        updateState(previous -> SessionViewState.idle()
-            .withLocalVolumePercent(previous.localVolumePercent())
-            .withMessage("Disconnected")
-        );
     }
 
-    public void disconnectPeer(String peerId) {
+    public synchronized void disconnectPeer(String peerId) {
         if (state.role() != DeviceRole.HOST) {
             updateState(previous -> previous.withMessage("Only host can disconnect listeners"));
             return;
@@ -336,16 +378,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
 
         transport.disconnectPeer(peerId);
-        updateState(previous -> {
-            List<String> peers = removePeer(previous.connectedPeerIds(), peerId);
-            return previous
-                .withConnectedPeers(peers)
-                .withConnectionStatus(peers.isEmpty() ? ConnectionStatus.HOSTING : ConnectionStatus.CONNECTED)
-                .withMessage("Listener disconnected: " + peerId);
-        });
+        onPeerDisconnected(peerId);
     }
 
-    public void setLocalVolumePercent(int volumePercent) {
+    public synchronized void setLocalVolumePercent(int volumePercent) {
         int clampedVolume = Math.max(0, Math.min(100, volumePercent));
         audioPlayer.setVolume(clampedVolume / 100.0D);
         updateState(previous -> previous
@@ -355,22 +391,46 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     @Override
-    public void onReady(Duration duration) {
+    public synchronized void onReady(String readyLoadId, Duration duration) {
+        if (!isCurrentLoad(readyLoadId) || localFailed) return;
+        localReady = true;
         updateState(previous -> previous
-            .withPlaybackStatus(PlaybackStatus.READY)
+            .withPlaybackStatus(playRequested ? PlaybackStatus.WAITING : PlaybackStatus.READY)
             .withTrack(previous.trackName(), toMillis(duration))
             .withMessage("Track is ready")
         );
+        announceReady();
+        tryStartPlayback();
     }
 
     @Override
-    public void onPositionChanged(Duration position) {
+    public synchronized void onPositionChanged(String positionLoadId, Duration position) {
+        if (!isCurrentLoad(positionLoadId) || !localReady) return;
         updateState(previous -> previous.withPosition(toMillis(position)));
     }
 
     @Override
-    public void onError(String message, Throwable cause) {
-        fail(message, cause);
+    public synchronized void onError(String failedLoadId, String message, Throwable cause) {
+        if (!isCurrentLoad(failedLoadId)) return;
+        localReady = false;
+        localFailed = true;
+        cancelPlayRequest();
+        stopPendingPlayTask();
+        audioPlayer.pause();
+        if (state.role() == DeviceRole.CLIENT) transport.send(PeerMessage.trackFailed(loadId));
+        if (state.role() == DeviceRole.HOST) transport.broadcast(PeerMessage.pause(loadId, state.positionMillis()));
+        reportRecoverable(message, cause);
+        updateState(previous -> previous.withPlaybackStatus(PlaybackStatus.ERROR).withMessage(message));
+    }
+
+    @Override
+    public synchronized void onEnded(String endedLoadId) {
+        if (!isCurrentLoad(endedLoadId)) return;
+        if (state.role() == DeviceRole.HOST) {
+            pause();
+            seek(0L);
+        }
+        updateState(previous -> previous.withPlaybackStatus(PlaybackStatus.PAUSED).withMessage("Track ended"));
     }
 
     @Override
@@ -379,8 +439,13 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     @Override
-    public void onPeerConnected(String peerId) {
+    public synchronized void onPeerConnected(String peerId) {
+        if (state.role() == DeviceRole.IDLE) return;
+        boolean resume = playRequested || pendingPlayTask != null || state.playbackStatus() == PlaybackStatus.PLAYING;
         if (state.role() == DeviceRole.HOST) {
+            if (resume) pause();
+            readyPeers.remove(peerId);
+            failedPeers.remove(peerId);
             updateState(previous -> {
                 List<String> peers = addPeer(previous.connectedPeerIds(), peerId);
                 return previous
@@ -397,6 +462,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
         if (state.role() == DeviceRole.HOST && hostConfig != null) {
             sendPlaylistToPeer(peerId);
+            if (resume) play();
         }
 
         if (state.role() == DeviceRole.CLIENT) {
@@ -405,12 +471,16 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     @Override
-    public void onPeerDisconnected(String peerId) {
+    public synchronized void onPeerDisconnected(String peerId) {
         if (state.role() == DeviceRole.IDLE) {
             return;
         }
 
         if (state.role() == DeviceRole.HOST) {
+            if (!state.connectedPeerIds().contains(peerId)) return;
+            pause();
+            readyPeers.remove(peerId);
+            failedPeers.remove(peerId);
             updateState(previous -> {
                 List<String> peers = removePeer(previous.connectedPeerIds(), peerId);
                 return previous
@@ -419,8 +489,11 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                     .withMessage("Peer disconnected: " + peerId);
             });
         } else {
+            resetReadiness("");
+            audioPlayer.stop();
             updateState(previous -> previous
                 .withConnectionStatus(ConnectionStatus.DISCONNECTED)
+                .withPlaybackStatus(PlaybackStatus.STOPPED)
                 .withMessage("Disconnected from host")
             );
         }
@@ -430,7 +503,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     @Override
-    public void onMessage(PeerMessage message) {
+    public synchronized void onMessage(String peerId, PeerMessage message) {
         long receivedAtMillis = clock.nowMillis();
 
         try {
@@ -438,14 +511,33 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 updateState(previous -> previous.withMessage("Ignored unexpected peer message: " + message.type()));
                 return;
             }
+            if (state.role() == DeviceRole.HOST && !state.connectedPeerIds().contains(peerId)) return;
 
             switch (message.type()) {
                 case PLAYLIST_UPDATED -> applyRemotePlaylist(message);
                 case TRACK_SELECTED -> loadRemoteTrack(message);
-                case PLAY_AT -> schedulePlay(message.positionMillis(), message.startAtHostMillis());
-                case PAUSE -> pauseFromRemote(message.positionMillis());
-                case SEEK -> seekFromRemote(message.positionMillis());
-                case TIME_SYNC_REQUEST -> respondToTimeSync(message, receivedAtMillis);
+                case PLAY_AT -> {
+                    if (isCurrentLoad(message.loadId()) && localReady && clockSynchronizer.isSynchronized()) {
+                        schedulePlay(message.positionMillis(), message.startAtHostMillis());
+                    }
+                }
+                case PAUSE -> { if (isCurrentLoad(message.loadId())) pauseFromRemote(message.positionMillis()); }
+                case SEEK -> { if (isCurrentLoad(message.loadId())) seekFromRemote(message.positionMillis()); }
+                case TRACK_READY -> {
+                    if (isCurrentLoad(message.loadId()) && !failedPeers.contains(peerId)) {
+                        readyPeers.add(peerId);
+                        tryStartPlayback();
+                    }
+                }
+                case TRACK_FAILED -> {
+                    if (isCurrentLoad(message.loadId())) {
+                        readyPeers.remove(peerId);
+                        failedPeers.add(peerId);
+                        pause();
+                        updateState(previous -> previous.withMessage("Track could not load for " + peerId + "; select it again to retry"));
+                    }
+                }
+                case TIME_SYNC_REQUEST -> respondToTimeSync(peerId, message, receivedAtMillis);
                 case TIME_SYNC_RESPONSE -> applyTimeSync(message, receivedAtMillis);
             }
         } catch (RuntimeException ex) {
@@ -454,14 +546,17 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     @Override
-    public void onTransportError(String message, Throwable cause) {
+    public synchronized void onTransportError(String message, Throwable cause) {
         fail(message, cause);
     }
 
     @Override
     public void close() {
-        stopTimeSyncLoop();
-        stopPendingPlayTask();
+        synchronized (this) {
+            stopTimeSyncLoop();
+            resetReadiness("");
+            state = SessionViewState.idle();
+        }
         try {
             transport.close();
         } finally {
@@ -472,13 +567,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     private void loadRemoteTrack(PeerMessage message) {
         try {
-            stopPendingPlayTask();
+            requireLoadId(message);
+            resetReadiness(message.loadId());
             updateState(previous -> previous
                 .withPlaybackStatus(PlaybackStatus.LOADING)
                 .withTrack(message.trackName(), 0L)
                 .withMessage("Loading remote track")
             );
-            audioPlayer.load(TrackSourceValidator.requireSafeSource(message.mediaUri()));
+            audioPlayer.load(TrackSourceValidator.requireSafeSource(message.mediaUri()), loadId);
         } catch (RuntimeException ex) {
             fail("Could not load remote track", ex);
         }
@@ -487,14 +583,16 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     private void applyRemotePlaylist(PeerMessage message) {
         try {
             List<PlaylistTrack> safePlaylist = safeRemotePlaylist(message.playlist());
+            if (!safePlaylist.isEmpty()) requireLoadId(message);
+            boolean newLoad = !loadId.equals(message.loadId());
             boolean[] trackChanged = new boolean[1];
             updateState(previous -> previous
                 .withPlaylist(safePlaylist, message.currentTrackIndex())
                 .withPlaybackStatus(nextPlaylistStatus(previous, safePlaylist, message.currentTrackIndex(), trackChanged))
                 .withMessage(safePlaylist.isEmpty() ? "Playlist is empty" : "Playlist updated")
             );
-            if (trackChanged[0]) {
-                stopPendingPlayTask();
+            if (trackChanged[0] || newLoad) {
+                resetReadiness(message.loadId());
                 loadCurrentPlaylistTrack("Loading playlist track");
             }
         } catch (RuntimeException ex) {
@@ -502,8 +600,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
     }
 
-    private void loadCurrentPlaylistTrack(String loadingMessage) {
-        stopPendingPlayTask();
+    private synchronized void loadCurrentPlaylistTrack(String loadingMessage) {
+        resetReadiness(state.role() == DeviceRole.CLIENT ? loadId : UUID.randomUUID().toString());
         PlaylistTrack track = state.currentTrack();
         if (track == null) {
             audioPlayer.stop();
@@ -518,19 +616,24 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         updateState(previous -> previous
             .withPlaybackStatus(PlaybackStatus.LOADING)
             .withTrack(track.title(), 0L)
+            .withPosition(0L)
             .withMessage(loadingMessage)
         );
-        audioPlayer.load(TrackSourceValidator.requireSafeSource(track.sourceUrl()));
+        try {
+            audioPlayer.load(TrackSourceValidator.requireSafeSource(track.sourceUrl()), loadId);
+        } catch (RuntimeException ex) {
+            onError(loadId, "Could not load track", ex);
+        }
     }
 
     private void broadcastPlaylist() {
         if (state.role() == DeviceRole.HOST) {
-            transport.broadcast(PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex()));
+            transport.broadcast(PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex(), loadId));
         }
     }
 
     private void sendPlaylistToPeer(String peerId) {
-        transport.sendToPeer(peerId, PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex()));
+        transport.sendToPeer(peerId, PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex(), loadId));
     }
 
     private List<PlaylistTrack> safeRemotePlaylist(List<PlaylistTrack> playlist) {
@@ -563,7 +666,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         if (first == null || second == null) {
             return first == second;
         }
-        return first.id().equals(second.id());
+        return first.id().equals(second.id()) && first.sourceUrl().equals(second.sourceUrl());
     }
 
     private boolean isHostActive(SessionViewState viewState) {
@@ -587,7 +690,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             return false;
         }
         return switch (role) {
-            case HOST -> type == MessageType.TIME_SYNC_REQUEST;
+            case HOST -> type == MessageType.TIME_SYNC_REQUEST
+                || type == MessageType.TRACK_READY || type == MessageType.TRACK_FAILED;
             case CLIENT -> type == MessageType.PLAYLIST_UPDATED
                 || type == MessageType.TRACK_SELECTED
                 || type == MessageType.PLAY_AT
@@ -614,23 +718,34 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     private void schedulePlay(long positionMillis, long startAtHostMillis) {
         stopPendingPlayTask();
+        long generation = playGeneration;
+        String scheduledLoadId = loadId;
         long localNow = clock.nowMillis();
         long delayMillis = state.role() == DeviceRole.CLIENT
             ? clockSynchronizer.localDelayUntilHostTime(startAtHostMillis, localNow)
             : Math.max(0L, startAtHostMillis - localNow);
 
         pendingPlayTask = scheduler.schedule(() -> {
-            pendingPlayTask = null;
-            audioPlayer.seek(Duration.ofMillis(Math.max(0L, positionMillis)));
-            audioPlayer.play();
-            updateState(previous -> previous
-                .withPlaybackStatus(PlaybackStatus.PLAYING)
-                .withPosition(positionMillis)
-                .withMessage("Playing")
-            );
+            synchronized (this) {
+                if (generation != playGeneration || !isCurrentLoad(scheduledLoadId) || !localReady) return;
+                if (state.role() == DeviceRole.HOST && !allPeersReady()) return;
+                pendingPlayTask = null;
+                try {
+                    audioPlayer.seek(Duration.ofMillis(Math.max(0L, positionMillis)));
+                    audioPlayer.play();
+                    updateState(previous -> previous
+                        .withPlaybackStatus(PlaybackStatus.PLAYING)
+                        .withPosition(positionMillis)
+                        .withMessage("Playing")
+                    );
+                } catch (RuntimeException ex) {
+                    onError(scheduledLoadId, "Could not start playback", ex);
+                }
+            }
         }, delayMillis, TimeUnit.MILLISECONDS);
 
-        updateState(previous -> previous.withMessage("Play scheduled in " + delayMillis + " ms"));
+        updateState(previous -> previous.withPlaybackStatus(PlaybackStatus.WAITING)
+            .withMessage("Play scheduled in " + delayMillis + " ms"));
     }
 
     private void pauseFromRemote(long positionMillis) {
@@ -638,7 +753,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         audioPlayer.pause();
         audioPlayer.seek(Duration.ofMillis(Math.max(0L, positionMillis)));
         updateState(previous -> previous
-            .withPlaybackStatus(PlaybackStatus.PAUSED)
+            .withPlaybackStatus(localReady ? PlaybackStatus.PAUSED : PlaybackStatus.LOADING)
             .withPosition(positionMillis)
             .withMessage("Paused by host")
         );
@@ -653,11 +768,11 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         );
     }
 
-    private void respondToTimeSync(PeerMessage message, long hostReceivedAtMillis) {
+    private void respondToTimeSync(String peerId, PeerMessage message, long hostReceivedAtMillis) {
         if (state.role() != DeviceRole.HOST) {
             return;
         }
-        transport.send(PeerMessage.timeSyncResponse(
+        transport.sendToPeer(peerId, PeerMessage.timeSyncResponse(
             message.nonce(),
             message.clientSentAtMillis(),
             hostReceivedAtMillis,
@@ -669,6 +784,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         if (state.role() != DeviceRole.CLIENT) {
             return;
         }
+        Long sentAt = pendingClockSamples.remove(message.nonce());
+        if (sentAt == null || sentAt != message.clientSentAtMillis()
+            || clientReceivedAtMillis < sentAt || clientReceivedAtMillis - sentAt > 15_000L
+            || message.hostSentAtMillis() < message.hostReceivedAtMillis()) return;
         clockSynchronizer.applySample(
             message.clientSentAtMillis(),
             clientReceivedAtMillis,
@@ -677,8 +796,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         );
         updateState(previous -> previous
             .withClockOffset(clockSynchronizer.offsetMillis())
-            .withMessage("Clock offset: " + clockSynchronizer.offsetMillis() + " ms")
         );
+        announceReady();
     }
 
     private void startTimeSyncLoop() {
@@ -686,7 +805,13 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         timeSyncTask = scheduler.scheduleAtFixedRate(
             () -> {
                 try {
-                    transport.send(PeerMessage.timeSyncRequest(clock.nowMillis()));
+                    synchronized (this) {
+                        if (state.role() != DeviceRole.CLIENT || state.connectionStatus() != ConnectionStatus.CONNECTED) return;
+                        PeerMessage request = PeerMessage.timeSyncRequest(clock.nowMillis());
+                        if (pendingClockSamples.size() >= 8) pendingClockSamples.clear();
+                        pendingClockSamples.put(request.nonce(), request.clientSentAtMillis());
+                        transport.send(request);
+                    }
                 } catch (RuntimeException ex) {
                     fail("Could not send time sync request", ex);
                 }
@@ -706,11 +831,85 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     private void stopPendingPlayTask() {
+        playGeneration++;
         ScheduledFuture<?> task = pendingPlayTask;
         if (task != null) {
             task.cancel(false);
             pendingPlayTask = null;
         }
+    }
+
+    private boolean isCurrentLoad(String candidate) {
+        return state.role() != DeviceRole.IDLE && !loadId.isBlank() && loadId.equals(candidate);
+    }
+
+    private void requireLoadId(PeerMessage message) {
+        if (message.loadId().isBlank()) {
+            throw new IllegalArgumentException("Track load identifier is missing; update both Xover apps");
+        }
+    }
+
+    private void resetReadiness(String nextLoadId) {
+        cancelPlayRequest();
+        stopPendingPlayTask();
+        loadId = nextLoadId;
+        localReady = false;
+        localFailed = false;
+        readyAnnounced = false;
+        readyPeers.clear();
+        failedPeers.clear();
+    }
+
+    private void cancelPlayRequest() {
+        playRequested = false;
+        if (readinessTimeout != null) {
+            readinessTimeout.cancel(false);
+            readinessTimeout = null;
+        }
+    }
+
+    private boolean allPeersReady() {
+        return failedPeers.isEmpty() && readyPeers.containsAll(state.connectedPeerIds());
+    }
+
+    private void announceReady() {
+        if (state.role() == DeviceRole.CLIENT && localReady && clockSynchronizer.isSynchronized() && !readyAnnounced) {
+            readyAnnounced = true;
+            transport.send(PeerMessage.trackReady(loadId));
+        }
+    }
+
+    private void awaitReadiness() {
+        if (readinessTimeout == null) {
+            String waitingLoadId = loadId;
+            readinessTimeout = scheduler.schedule(() -> {
+                synchronized (this) {
+                    if (!isCurrentLoad(waitingLoadId) || !playRequested) return;
+                    readinessTimeout = null;
+                    cancelPlayRequest();
+                    stopPendingPlayTask();
+                    updateState(previous -> previous
+                        .withPlaybackStatus(localReady ? PlaybackStatus.PAUSED : PlaybackStatus.LOADING)
+                        .withMessage("Loading timed out. Check listeners, then press Play to retry."));
+                }
+            }, READY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        }
+        tryStartPlayback();
+    }
+
+    private void tryStartPlayback() {
+        if (state.role() != DeviceRole.HOST || !playRequested) return;
+        if (!localReady || !allPeersReady()) {
+            updateState(previous -> previous.withPlaybackStatus(PlaybackStatus.WAITING)
+                .withMessage(!localReady ? "Waiting for this device to load the track"
+                    : "Waiting for listeners: " + readyPeers.size() + "/" + previous.connectedPeerIds().size() + " ready"));
+            return;
+        }
+        long position = requestedPositionMillis;
+        cancelPlayRequest();
+        long startAt = clock.nowMillis() + PLAY_SAFETY_DELAY_MILLIS;
+        transport.broadcast(PeerMessage.playAt(loadId, position, startAt));
+        if (localReady) schedulePlay(position, startAt);
     }
 
     private String titleFromUri(URI uri) {
@@ -754,7 +953,20 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         return currentIndex;
     }
 
-    private void fail(String message, Throwable cause) {
+    private synchronized void fail(String message, Throwable cause) {
+        boolean notifyFailure = !localFailed && !loadId.isBlank();
+        cancelPlayRequest();
+        stopPendingPlayTask();
+        stopTimeSyncLoop();
+        localReady = false;
+        localFailed = true;
+        audioPlayer.pause();
+        if (notifyFailure && state.role() == DeviceRole.CLIENT) {
+            transport.send(PeerMessage.trackFailed(loadId));
+        }
+        if (notifyFailure && state.role() == DeviceRole.HOST) {
+            transport.broadcast(PeerMessage.pause(loadId, state.positionMillis()));
+        }
         Throwable failure = normalizeFailure(message, cause);
         errorReporter.report(message, failure);
         String detail = failure.getMessage() == null ? message : message + ": " + failure.getMessage();

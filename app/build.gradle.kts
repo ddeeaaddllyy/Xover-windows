@@ -43,6 +43,17 @@ application {
     mainClass.set("com.xover.music.app.XoverMain")
 }
 
+distributions {
+    main {
+        contents {
+            from(rootProject.file("LICENSE"))
+            from(rootProject.file("README.md"))
+            from(rootProject.file(".env.example"))
+            from(rootProject.file("docs")) { into("docs") }
+        }
+    }
+}
+
 configurations.runtimeClasspath {
     exclude(group = "org.jetbrains.compose.runtime", module = "runtime-desktop")
     exclude(group = "org.jetbrains.compose.runtime", module = "runtime-saveable-desktop")
@@ -189,17 +200,17 @@ val writeProguardReleaseConfig = tasks.register("writeProguardReleaseConfig") {
 
         generatedConfig.writeText(buildString {
             projectJars.forEach { inputJar ->
-                appendLine("-injars ${proguardPath(inputJar)}")
-                appendLine("-outjars ${proguardPath(obfuscatedLibs.resolve(inputJar.name))}")
+                appendLine("-injars '${proguardPath(inputJar)}'")
+                appendLine("-outjars '${proguardPath(obfuscatedLibs.resolve(inputJar.name))}'")
             }
             runtimeLibraries.forEach { libraryJar ->
-                appendLine("-libraryjars ${proguardPath(libraryJar)}")
+                appendLine("-libraryjars '${proguardPath(libraryJar)}'")
             }
             jmods.forEach { jmod ->
-                appendLine("-libraryjars ${proguardPath(jmod)}(!**.jar;!module-info.class)")
+                appendLine("-libraryjars '${proguardPath(jmod)}'(!**.jar;!module-info.class)")
             }
-            appendLine("-include ${proguardPath(layout.projectDirectory.file("proguard-release.pro").asFile)}")
-            appendLine("-printmapping ${proguardPath(proguardMappingFile.get().asFile)}")
+            appendLine("-include '${proguardPath(layout.projectDirectory.file("proguard-release.pro").asFile)}'")
+            appendLine("-printmapping '${proguardPath(proguardMappingFile.get().asFile)}'")
         })
     }
 }
@@ -246,4 +257,5 @@ tasks.register("releaseObfuscated") {
     group = "distribution"
     description = "Builds the obfuscated release zip."
     dependsOn(tasks.named("obfuscatedDistZip"))
+    dependsOn(rootProject.subprojects.map { "${it.path}:check" })
 }

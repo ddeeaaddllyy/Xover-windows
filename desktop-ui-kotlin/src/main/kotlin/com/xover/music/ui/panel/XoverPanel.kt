@@ -1,7 +1,8 @@
 package com.xover.music.ui
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,10 +21,12 @@ import java.awt.Window as AwtWindow
 internal fun XoverPanel(
     state: SessionViewState,
     awtWindow: AwtWindow,
-    pinned: Boolean,
-    opacity: Float,
-    onPinnedChange: (Boolean) -> Unit,
-    onOpacityChange: (Float) -> Unit,
+    settings: UiSettings,
+    onSettingsChange: (UiSettings) -> Unit,
+    selectedTab: XoverTab,
+    onTabSelected: (XoverTab) -> Unit,
+    selectedRole: SetupRole,
+    onRoleSelected: (SetupRole) -> Unit,
     onCollapse: () -> Unit,
     onMinimize: () -> Unit,
     onClose: () -> Unit,
@@ -40,12 +43,9 @@ internal fun XoverPanel(
     onDisconnect: () -> Unit,
     onDisconnectPeer: (String) -> Unit,
 ) {
-    var selectedTab by remember { mutableStateOf(XoverTab.SETUP) }
-    var selectedRole by remember { mutableStateOf(SetupRole.HOST) }
-    var advertisedHost by remember { mutableStateOf("127.0.0.1") }
-    var connectHost by remember { mutableStateOf("127.0.0.1") }
-    var port by remember { mutableStateOf(DefaultPort.toString()) }
-    val animatedOpacity by animateFloatAsState(opacity.coerceIn(0.78f, 0.98f), label = "panelOpacity")
+    val animatedOpacity by animateFloatAsState(
+        settings.opacity, animationSpec = gentleMotion(), label = "panelOpacity",
+    )
 
     FloatingSurface(opacity = animatedOpacity) {
         TopBar(
@@ -58,66 +58,72 @@ internal fun XoverPanel(
 
         TabStrip(
             selectedTab = selectedTab,
-            onTabSelected = { selectedTab = it },
+            onTabSelected = onTabSelected,
         )
 
         Divider(color = BorderColor.copy(alpha = 0.7f))
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            when (selectedTab) {
-                XoverTab.SETUP -> SetupTab(
-                    state = state,
-                    selectedRole = selectedRole,
-                    advertisedHost = advertisedHost,
-                    connectHost = connectHost,
-                    port = port,
-                    onRoleSelected = { selectedRole = it },
-                    onAdvertisedHostChange = { advertisedHost = it },
-                    onConnectHostChange = { connectHost = it },
-                    onPortChange = { port = it.filter(Char::isDigit).take(5) },
-                    onHost = {
-                        onHost(advertisedHost, port.toIntOrNull() ?: DefaultPort)
-                    },
-                    onConnect = {
-                        onConnect(connectHost, port.toIntOrNull() ?: DefaultPort)
-                    },
-                    onDisconnect = onDisconnect,
-                )
+        Crossfade(
+            targetState = selectedTab,
+            animationSpec = tween(180),
+            label = "tabContent",
+            modifier = Modifier.fillMaxWidth().weight(1f),
+        ) { tab ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                when (tab) {
+                    XoverTab.SETUP -> SetupTab(
+                        state = state,
+                        selectedRole = selectedRole,
+                        advertisedHost = settings.advertisedHost,
+                        connectHost = settings.connectHost,
+                        port = settings.port,
+                        onRoleSelected = onRoleSelected,
+                        onAdvertisedHostChange = { onSettingsChange(settings.copy(advertisedHost = it.take(253))) },
+                        onConnectHostChange = { onSettingsChange(settings.copy(connectHost = it.take(253))) },
+                        onPortChange = { onSettingsChange(settings.copy(port = it.filter(Char::isDigit).take(5))) },
+                        onHost = {
+                            onHost(settings.advertisedHost, settings.port.toIntOrNull() ?: 0)
+                        },
+                        onConnect = {
+                            onConnect(settings.connectHost, settings.port.toIntOrNull() ?: 0)
+                        },
+                        onDisconnect = onDisconnect,
+                    )
 
-                XoverTab.PLAYER -> PlayerTab(
-                    state = state,
-                    onAddTrackUrl = onAddTrackUrl,
-                    onSelectTrack = onSelectTrack,
-                    onRemoveTrack = onRemoveTrack,
-                    onMoveTrack = onMoveTrack,
-                    onPlay = onPlay,
-                    onPause = onPause,
-                    onSeek = onSeek,
-                    onLocalVolumeChange = onLocalVolumeChange,
-                )
+                    XoverTab.PLAYER -> PlayerTab(
+                        state = state,
+                        onAddTrackUrl = onAddTrackUrl,
+                        onSelectTrack = onSelectTrack,
+                        onRemoveTrack = onRemoveTrack,
+                        onMoveTrack = onMoveTrack,
+                        onPlay = onPlay,
+                        onPause = onPause,
+                        onSeek = onSeek,
+                        onLocalVolumeChange = onLocalVolumeChange,
+                    )
 
-                XoverTab.STATUS -> StatusTab(
-                    state = state,
-                    onDisconnectPeer = onDisconnectPeer,
-                )
+                    XoverTab.STATUS -> StatusTab(
+                        state = state,
+                        onDisconnectPeer = onDisconnectPeer,
+                    )
 
-                XoverTab.MORE -> MoreTab(
-                    state = state,
-                    pinned = pinned,
-                    opacity = opacity,
-                    onPinnedChange = onPinnedChange,
-                    onOpacityChange = onOpacityChange,
-                    onDisconnect = onDisconnect,
-                    onDisconnectPeer = onDisconnectPeer,
-                    onCollapse = onCollapse,
-                    onMinimize = onMinimize,
-                )
+                    XoverTab.MORE -> MoreTab(
+                        state = state,
+                        pinned = settings.pinned,
+                        opacity = settings.opacity,
+                        onPinnedChange = { onSettingsChange(settings.copy(pinned = it)) },
+                        onOpacityChange = { onSettingsChange(settings.copy(opacity = it)) },
+                        onDisconnect = onDisconnect,
+                        onDisconnectPeer = onDisconnectPeer,
+                        onCollapse = onCollapse,
+                        onMinimize = onMinimize,
+                    )
+                }
             }
         }
     }
@@ -126,12 +132,11 @@ internal fun XoverPanel(
 @Composable
 internal fun CollapsedRail(
     state: SessionViewState,
+    opacity: Float,
     awtWindow: AwtWindow,
     onExpand: () -> Unit,
     onMinimize: () -> Unit,
 ) {
-    val railWidth by animateDpAsState(64.dp, label = "railWidth")
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -140,17 +145,16 @@ internal fun CollapsedRail(
     ) {
         Column(
             modifier = Modifier
-                .width(railWidth)
-                .windowDrag(awtWindow)
+                .width(64.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(SurfaceColor.copy(alpha = 0.96f))
+                .background(SurfaceColor.copy(alpha = opacity))
                 .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(24.dp))
                 .padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             StatusDot(state.connectionStatus())
-            Text("XO", fontWeight = FontWeight.Bold, color = PrimaryText)
+            Text("XO", fontWeight = FontWeight.Bold, color = PrimaryText, modifier = Modifier.windowDrag(awtWindow))
             WindowControlButton(">", ControlGreen, onExpand)
             WindowControlButton("-", ControlYellow, onMinimize)
         }

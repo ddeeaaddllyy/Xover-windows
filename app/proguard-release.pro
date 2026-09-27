@@ -8,8 +8,7 @@
     public static void main(java.lang.String[]);
 }
 
--keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod
--keepdirectories
+-keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
 
 -optimizationpasses 5
 -allowaccessmodification

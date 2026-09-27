@@ -28,7 +28,7 @@ final class YandexMusicMediaResolver {
 
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(20))
-        .followRedirects(HttpClient.Redirect.NORMAL)
+        .followRedirects(HttpClient.Redirect.NEVER)
         .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -122,13 +122,19 @@ final class YandexMusicMediaResolver {
     }
 
     private FetchResult get(URI uri, String token, String acceptHeader) throws IOException {
-        HttpRequest request = HttpRequest.newBuilder(uri)
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null) {
+            throw new IOException("Yandex Music metadata requires an HTTPS URL without credentials");
+        }
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
             .timeout(Duration.ofSeconds(25))
             .header("Accept", acceptHeader)
-            .header("Authorization", "OAuth " + token)
             .header("User-Agent", USER_AGENT)
-            .GET()
-            .build();
+            .GET();
+        // Download metadata can live on a different host; never forward the account token there.
+        if ("api.music.yandex.net".equalsIgnoreCase(uri.getHost()) && (uri.getPort() == -1 || uri.getPort() == 443)) {
+            builder.header("Authorization", "OAuth " + token);
+        }
+        HttpRequest request = builder.build();
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int status = response.statusCode();

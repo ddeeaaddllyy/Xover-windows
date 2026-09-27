@@ -24,6 +24,7 @@ public final class MediaResolver {
         try {
             return soundCloud.resolve(mediaUri);
         } catch (XoverException failure) {
+            if (Thread.currentThread().isInterrupted()) throw failure;
             try {
                 return external.resolveWithYtDlp(mediaUri).orElseThrow(() -> failure);
             } catch (IOException externalFailure) {

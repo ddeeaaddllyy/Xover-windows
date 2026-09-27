@@ -123,7 +123,7 @@ internal fun CompactUrlField(
             hovered -> SurfaceColor.copy(alpha = 0.94f)
             else -> SurfaceColor.copy(alpha = 0.82f)
         },
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "compactFieldBackground",
     )
     val border by animateColorAsState(
@@ -133,7 +133,7 @@ internal fun CompactUrlField(
             hovered -> BorderColor
             else -> BorderColor.copy(alpha = 0.78f)
         },
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "compactFieldBorder",
     )
 
@@ -245,12 +245,12 @@ internal fun MotionButton(
             hovered -> (-2).dp
             else -> 0.dp
         },
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "motionButtonOffset",
     )
     val scale by animateFloatAsState(
         targetValue = if (enabled && pressed) 0.985f else 1f,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "motionButtonScale",
     )
     val background by animateColorAsState(
@@ -260,12 +260,12 @@ internal fun MotionButton(
             hovered -> hoverBackgroundColor
             else -> backgroundColor
         },
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "motionButtonBackground",
     )
     val foreground by animateColorAsState(
         targetValue = if (enabled) contentColor else disabledContentColor,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "motionButtonForeground",
     )
     val animatedBorder by animateColorAsState(
@@ -277,7 +277,7 @@ internal fun MotionButton(
                 else -> 0.78f
             },
         ) ?: Color.Transparent,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "motionButtonBorder",
     )
 
@@ -317,31 +317,19 @@ internal fun WindowControlButton(
     color: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    shakeOnHover: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val background by animateColorAsState(
         targetValue = if (hovered) color else color.copy(alpha = 0.82f),
-        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "windowControlBackground",
     )
     val scale by animateFloatAsState(
         targetValue = if (hovered) 1.08f else 1f,
-        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+        animationSpec = gentleMotion(),
         label = "windowControlScale",
     )
-    val shakeTransition = rememberInfiniteTransition(label = "windowControlShake")
-    val shakeOffset by shakeTransition.animateFloat(
-        initialValue = -1.4f,
-        targetValue = 1.4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 70),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "windowControlShakeOffset",
-    )
-    val offsetX = if (hovered && shakeOnHover) shakeOffset else 0f
 
     Box(
         modifier = modifier
@@ -349,11 +337,11 @@ internal fun WindowControlButton(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                translationX = offsetX
             }
             .clip(CircleShape)
             .background(background)
             .border(BorderStroke(1.dp, color.copy(alpha = 0.35f)), CircleShape)
+            .hoverable(interactionSource)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,

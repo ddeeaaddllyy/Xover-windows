@@ -32,6 +32,9 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -40,6 +43,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 private const val WEBSOCKET_PING_INTERVAL_MILLIS = 15_000L
@@ -56,6 +60,10 @@ class KtorPeerTransport : PeerTransportPort {
     private val serverSessions = ConcurrentHashMap.newKeySet<DefaultWebSocketServerSession>()
     private val serverPeerIds = ConcurrentHashMap<DefaultWebSocketServerSession, String>()
     private val nextPeerNumber = AtomicInteger(1)
+    private val clientGeneration = AtomicLong()
+    private val serverGeneration = AtomicLong()
+    private var clientJob: Job? = null
+    private val sendQueues = ConcurrentHashMap<io.ktor.websocket.WebSocketSession, Channel<String>>()
 
     @Volatile
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
@@ -72,6 +80,7 @@ class KtorPeerTransport : PeerTransportPort {
 
     override fun startHost(config: HostStartupConfig) {
         closeServer()
+        val generation = serverGeneration.get()
 
         try {
             server = embeddedServer(Netty, host = config.bindHost(), port = config.port()) {
@@ -89,19 +98,27 @@ class KtorPeerTransport : PeerTransportPort {
                         val peerId = "client-$peerNumber (${call.request.origin.remoteHost})"
                         serverSessions.add(this)
                         serverPeerIds[this] = peerId
+                        registerSender(this, peerId)
                         listenerRef.get().onPeerConnected(peerId)
                         try {
                             for (frame in incoming) {
                                 if (frame is Frame.Text) {
-                                    listenerRef.get().onMessage(decodeFrame(frame.readText()))
+                                    if (generation == serverGeneration.get()) {
+                                        listenerRef.get().onMessage(peerId, decodeFrame(frame.readText()))
+                                    }
                                 }
                             }
-                        } catch (ex: RuntimeException) {
-                            listenerRef.get().onTransportError("Host WebSocket failed", protocolFailure("Host WebSocket failed", ex))
+                        } catch (ex: CancellationException) {
+                            throw ex
+                        } catch (ex: Exception) {
+                            if (generation == serverGeneration.get()) {
+                                listenerRef.get().onTransportError("Host WebSocket failed", protocolFailure("Host WebSocket failed", ex))
+                            }
                         } finally {
                             serverSessions.remove(this)
                             serverPeerIds.remove(this)
-                            listenerRef.get().onPeerDisconnected(peerId)
+                            sendQueues.remove(this)?.cancel()
+                            if (generation == serverGeneration.get()) listenerRef.get().onPeerDisconnected(peerId)
                         }
                     }
                 }
@@ -115,6 +132,7 @@ class KtorPeerTransport : PeerTransportPort {
 
     override fun connect(address: PeerAddress) {
         closeClient()
+        val generation = clientGeneration.get()
 
         val nextClient = HttpClient(CIO) {
             install(ClientWebSockets) {
@@ -124,7 +142,7 @@ class KtorPeerTransport : PeerTransportPort {
         }
         client = nextClient
 
-        scope.launch {
+        clientJob = scope.launch {
             try {
                 nextClient.webSocket(
                     method = HttpMethod.Get,
@@ -132,22 +150,36 @@ class KtorPeerTransport : PeerTransportPort {
                     port = address.port(),
                     path = "/sync",
                 ) {
+                    if (generation != clientGeneration.get()) return@webSocket
                     clientSession = this
+                    registerSender(this, "host")
                     listenerRef.get().onPeerConnected("${address.host()}:${address.port()}")
                     try {
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
-                                listenerRef.get().onMessage(decodeFrame(frame.readText()))
+                                if (generation == clientGeneration.get()) {
+                                    listenerRef.get().onMessage("${address.host()}:${address.port()}", decodeFrame(frame.readText()))
+                                }
                             }
                         }
-                    } catch (ex: RuntimeException) {
-                        listenerRef.get().onTransportError("Client WebSocket failed", protocolFailure("Client WebSocket failed", ex))
+                    } catch (ex: CancellationException) {
+                        throw ex
+                    } catch (ex: Exception) {
+                        if (generation == clientGeneration.get()) {
+                            listenerRef.get().onTransportError("Client WebSocket failed", protocolFailure("Client WebSocket failed", ex))
+                        }
                     } finally {
-                        clientSession = null
-                        listenerRef.get().onPeerDisconnected("${address.host()}:${address.port()}")
+                        sendQueues.remove(this)?.cancel()
+                        if (generation == clientGeneration.get()) {
+                            clientSession = null
+                            listenerRef.get().onPeerDisconnected("${address.host()}:${address.port()}")
+                        }
                     }
                 }
-            } catch (ex: RuntimeException) {
+            } catch (ex: CancellationException) {
+                throw ex
+            } catch (ex: Exception) {
+                if (generation != clientGeneration.get()) return@launch
                 listenerRef.get().onTransportError(
                     "Could not connect to ${address.host()}:${address.port()}",
                     NetworkTransportException.connectionFailed(address, ex),
@@ -194,6 +226,7 @@ class KtorPeerTransport : PeerTransportPort {
             ?.let { session ->
                 serverSessions.remove(session)
                 serverPeerIds.remove(session)
+                sendQueues.remove(session)?.cancel()
                 scope.launch {
                     session.close()
                 }
@@ -211,9 +244,13 @@ class KtorPeerTransport : PeerTransportPort {
     }
 
     private fun closeClient() {
+        clientGeneration.incrementAndGet()
+        clientJob?.cancel()
+        clientJob = null
         val session = clientSession
         clientSession = null
         if (session != null) {
+            sendQueues.remove(session)?.cancel()
             scope.launch {
                 session.close()
             }
@@ -223,7 +260,9 @@ class KtorPeerTransport : PeerTransportPort {
     }
 
     private fun closeServer() {
+        serverGeneration.incrementAndGet()
         serverSessions.forEach { session ->
+            sendQueues.remove(session)?.cancel()
             scope.launch {
                 session.close()
             }
@@ -237,12 +276,18 @@ class KtorPeerTransport : PeerTransportPort {
     private fun encode(message: PeerMessage): String =
         json.encodeToString(PeerMessageDto.serializer(), message.toDto())
 
-    private fun decode(payload: String): PeerMessage =
-        json.decodeFromString(PeerMessageDto.serializer(), payload).toDomain()
+    private fun decode(payload: String): PeerMessage {
+        require(payload.toByteArray(Charsets.UTF_8).size <= MAX_SYNC_FRAME_BYTES) { "Sync message is too large" }
+        val dto = json.decodeFromString(PeerMessageDto.serializer(), payload)
+        require(dto.protocolVersion == 2) { "Incompatible Xover protocol; update both apps" }
+        return dto.toDomain()
+    }
 
     private fun encodeMessage(message: PeerMessage): String? =
         try {
-            encode(message)
+            encode(message).also {
+                require(it.toByteArray(Charsets.UTF_8).size <= MAX_SYNC_FRAME_BYTES) { "Playlist exceeds the sync message size limit" }
+            }
         } catch (ex: RuntimeException) {
             listenerRef.get().onTransportError("Could not encode sync message", RemoteProtocolException("Could not encode sync message", ex))
             null
@@ -255,20 +300,39 @@ class KtorPeerTransport : PeerTransportPort {
             throw protocolFailure("Could not decode sync message", ex)
         }
 
-    private fun protocolFailure(message: String, failure: RuntimeException): RuntimeException =
+    private fun protocolFailure(message: String, failure: Exception): RuntimeException =
         if (failure is XoverException) {
             failure
         } else {
             RemoteProtocolException(message, failure)
         }
 
-    private fun sendFrame(session: io.ktor.websocket.WebSocketSession, payload: String, target: String) {
+    private fun registerSender(session: io.ktor.websocket.WebSocketSession, target: String) {
+        val queue = Channel<String>(128)
+        sendQueues[session] = queue
         scope.launch {
             try {
-                session.send(Frame.Text(payload))
-            } catch (ex: RuntimeException) {
-                listenerRef.get().onTransportError("Could not send sync message", NetworkTransportException.sendFailed(target, ex))
+                for (payload in queue) session.send(Frame.Text(payload))
+            } catch (ex: CancellationException) {
+                throw ex
+            } catch (ex: Exception) {
+                if (sendQueues.remove(session, queue)) {
+                    listenerRef.get().onTransportError("Could not send sync message", NetworkTransportException.sendFailed(target, ex))
+                    session.close()
+                }
+            } finally {
+                queue.cancel()
             }
+        }
+    }
+
+    private fun sendFrame(session: io.ktor.websocket.WebSocketSession, payload: String, target: String) {
+        val queue = sendQueues[session] ?: return
+        if (queue.trySend(payload).isFailure) {
+            sendQueues.remove(session, queue)
+            queue.cancel()
+            listenerRef.get().onTransportError("Listener is too slow", NetworkTransportException.sendFailed(target, IllegalStateException("Send queue is full")))
+            scope.launch { session.close() }
         }
     }
 
@@ -284,6 +348,8 @@ class KtorPeerTransport : PeerTransportPort {
         hostSentAtMillis = hostSentAtMillis(),
         playlist = playlist().map { it.toDto() },
         currentTrackIndex = currentTrackIndex(),
+        loadId = loadId(),
+        protocolVersion = 2,
     )
 
     private fun PeerMessageDto.toDomain(): PeerMessage = PeerMessage(
@@ -298,6 +364,7 @@ class KtorPeerTransport : PeerTransportPort {
         hostSentAtMillis,
         playlist.map { it.toDomain() },
         currentTrackIndex,
+        loadId,
     )
 
     private fun PlaylistTrack.toDto(): PlaylistTrackDto = PlaylistTrackDto(
@@ -326,6 +393,8 @@ private data class PeerMessageDto(
     val hostSentAtMillis: Long = 0L,
     val playlist: List<PlaylistTrackDto> = emptyList(),
     val currentTrackIndex: Int = -1,
+    val loadId: String = "",
+    val protocolVersion: Int = 1,
 )
 
 @Serializable

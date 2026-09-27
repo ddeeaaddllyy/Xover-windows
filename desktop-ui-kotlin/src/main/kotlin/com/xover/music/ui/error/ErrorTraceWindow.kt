@@ -178,13 +178,11 @@ internal fun ErrorTopBar(
                 "-",
                 ControlYellow,
                 onMinimize,
-                shakeOnHover = true
             )
             WindowControlButton(
                 "x",
                 ControlRed,
                 onClose,
-                shakeOnHover = true
             )
         }
     }

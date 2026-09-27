@@ -182,6 +182,7 @@ final class SoundCloudMediaResolver {
         try {
             return getWithHttpClient(uri);
         } catch (IOException ex) {
+            if (Thread.currentThread().isInterrupted()) throw ex;
             return getWithCurl(uri, ex);
         }
     }
@@ -232,8 +233,8 @@ final class SoundCloudMediaResolver {
         );
         builder.redirectErrorStream(true);
 
+        Process process = builder.start();
         try {
-            Process process = builder.start();
             CompletableFuture<byte[]> output = CompletableFuture.supplyAsync(() -> {
                 try {
                     return process.getInputStream().readAllBytes();
@@ -274,6 +275,8 @@ final class SoundCloudMediaResolver {
         } catch (IOException ex) {
             ex.addSuppressed(javaHttpFailure);
             throw ex;
+        } finally {
+            if (process.isAlive()) process.destroyForcibly();
         }
     }
 
@@ -287,11 +290,12 @@ final class SoundCloudMediaResolver {
         } else if (normalized.startsWith("/assets/")) {
             normalized = "https://a-v2.sndcdn.com" + normalized;
         }
-        if (!normalized.contains("a-v2.sndcdn.com/assets/")) {
-            return Optional.empty();
-        }
         try {
-            return Optional.of(URI.create(normalized));
+            URI script = URI.create(normalized);
+            return "https".equalsIgnoreCase(script.getScheme())
+                && "a-v2.sndcdn.com".equalsIgnoreCase(script.getHost())
+                && script.getUserInfo() == null && script.getPath().startsWith("/assets/")
+                ? Optional.of(script) : Optional.empty();
         } catch (IllegalArgumentException ex) {
             return Optional.empty();
         }
