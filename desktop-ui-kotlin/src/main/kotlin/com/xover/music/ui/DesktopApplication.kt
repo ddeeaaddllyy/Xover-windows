@@ -15,7 +15,13 @@ import androidx.compose.ui.window.rememberWindowState
 import com.xover.music.application.common.diagnostics.ErrorEventSource
 import com.xover.music.application.common.diagnostics.ErrorReporter
 import com.xover.music.application.session.ListeningSessionService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.asCoroutineDispatcher
 import java.awt.Frame
+import java.util.concurrent.Executors
 
 class DesktopApplication(
     private val sessionService: ListeningSessionService,
@@ -23,10 +29,51 @@ class DesktopApplication(
     private val errorReporter: ErrorReporter,
 ) {
     fun start() = application {
+        val settingsStore = remember { UiSettingsStore() }
+        val loadedSettings = remember { runCatching { settingsStore.load() } }
+        var settings by remember { mutableStateOf(loadedSettings.getOrDefault(UiSettings())) }
         var collapsed by remember { mutableStateOf(false) }
-        var pinned by remember { mutableStateOf(false) }
-        var opacity by remember { mutableFloatStateOf(0.94f) }
+        var selectedTab by remember { mutableStateOf(XoverTab.SETUP) }
+        var selectedRole by remember { mutableStateOf(SetupRole.HOST) }
+        var closing by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+        val sessionDispatcher = remember {
+            Executors.newSingleThreadExecutor { task ->
+                Thread(task, "xover-ui-actions").apply { isDaemon = true }
+            }.asCoroutineDispatcher()
+        }
+        DisposableEffect(sessionDispatcher) {
+            onDispose { sessionDispatcher.close() }
+        }
+        val perform: (String, () -> Unit) -> Unit = { operation, action ->
+            if (!closing) scope.launch(sessionDispatcher) { reportUiFailure(errorReporter, operation, action) }
+        }
         val latestError = rememberLatestError(errorEvents)
+        LaunchedEffect(Unit) {
+            loadedSettings.exceptionOrNull()?.let { errorReporter.report("Load preferences", it) }
+        }
+        LaunchedEffect(settings) {
+            delay(350)
+            withContext(Dispatchers.IO) {
+                runCatching { settingsStore.save(settings) }
+                    .onFailure { errorReporter.report("Save preferences", it) }
+            }
+        }
+        val closeApplication: () -> Unit = {
+            if (!closing) {
+                closing = true
+                val finalSettings = settings
+                scope.launch {
+                    withContext(sessionDispatcher) {
+                        runCatching { settingsStore.save(finalSettings) }
+                            .onFailure { errorReporter.report("Save preferences", it) }
+                        runCatching { sessionService.close() }
+                            .onFailure { errorReporter.report("Close session", it) }
+                    }
+                    exitApplication()
+                }
+            }
+        }
         val appIcon = appIconPainter()
         val windowState = rememberWindowState(
             position = WindowPosition(24.dp, 92.dp),
@@ -35,30 +82,27 @@ class DesktopApplication(
         val targetSize = if (collapsed) CollapsedSize else ExpandedSize
         val animatedWidth by animateDpAsState(
             targetValue = targetSize.width,
-            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+            animationSpec = gentleMotion(),
             label = "windowWidth",
         )
         val animatedHeight by animateDpAsState(
             targetValue = targetSize.height,
-            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+            animationSpec = gentleMotion(),
             label = "windowHeight",
         )
 
-        LaunchedEffect(animatedWidth, animatedHeight) {
+        SideEffect {
             windowState.size = DpSize(animatedWidth, animatedHeight)
         }
 
         Window(
-            onCloseRequest = {
-                sessionService.close()
-                exitApplication()
-            },
+            onCloseRequest = closeApplication,
             title = "Xover",
             state = windowState,
             undecorated = true,
             transparent = true,
             resizable = false,
-            alwaysOnTop = pinned,
+            alwaysOnTop = settings.pinned,
             icon = appIcon,
         ) {
             val state = rememberSessionState(sessionService)
@@ -78,6 +122,7 @@ class DesktopApplication(
                     if (isCollapsed) {
                         CollapsedRail(
                             state = state.value,
+                            opacity = settings.opacity,
                             awtWindow = window,
                             onExpand = { collapsed = false },
                             onMinimize = minimizeWindow,
@@ -86,73 +131,72 @@ class DesktopApplication(
                         XoverPanel(
                             state = state.value,
                             awtWindow = window,
-                            pinned = pinned,
-                            opacity = opacity,
-                            onPinnedChange = { pinned = it },
-                            onOpacityChange = { opacity = it },
+                            settings = settings,
+                            onSettingsChange = { settings = it },
+                            selectedTab = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            selectedRole = selectedRole,
+                            onRoleSelected = { selectedRole = it },
                             onCollapse = { collapsed = true },
                             onMinimize = minimizeWindow,
-                            onClose = {
-                                sessionService.close()
-                                exitApplication()
-                            },
+                            onClose = closeApplication,
                             onHost = { advertisedHost, port ->
-                                reportUiFailure(errorReporter, "Start host") {
+                                perform("Start host") {
                                     sessionService.startHost(advertisedHost, port)
                                 }
                             },
                             onConnect = { host, port ->
-                                reportUiFailure(errorReporter, "Connect to host") {
+                                perform("Connect to host") {
                                     sessionService.connectToHost(host, port)
                                 }
                             },
                             onAddTrackUrl = { sourceUrl ->
-                                reportUiFailure(errorReporter, "Add track URL") {
+                                perform("Add track URL") {
                                     sessionService.addTrackUrl(sourceUrl)
                                 }
                             },
                             onSelectTrack = { trackIndex ->
-                                reportUiFailure(errorReporter, "Select track") {
+                                perform("Select track") {
                                     sessionService.selectTrack(trackIndex)
                                 }
                             },
                             onRemoveTrack = { trackIndex ->
-                                reportUiFailure(errorReporter, "Remove track") {
+                                perform("Remove track") {
                                     sessionService.removeTrackAt(trackIndex)
                                 }
                             },
                             onMoveTrack = { fromIndex, toIndex ->
-                                reportUiFailure(errorReporter, "Move track") {
+                                perform("Move track") {
                                     sessionService.moveTrack(fromIndex, toIndex)
                                 }
                             },
                             onPlay = {
-                                reportUiFailure(errorReporter, "Play") {
+                                perform("Play") {
                                     sessionService.play()
                                 }
                             },
                             onPause = {
-                                reportUiFailure(errorReporter, "Pause") {
+                                perform("Pause") {
                                     sessionService.pause()
                                 }
                             },
                             onSeek = { positionMillis ->
-                                reportUiFailure(errorReporter, "Seek") {
+                                perform("Seek") {
                                     sessionService.seek(positionMillis)
                                 }
                             },
                             onLocalVolumeChange = { volumePercent ->
-                                reportUiFailure(errorReporter, "Change local volume") {
+                                perform("Change local volume") {
                                     sessionService.setLocalVolumePercent(volumePercent)
                                 }
                             },
                             onDisconnect = {
-                                reportUiFailure(errorReporter, "Disconnect") {
+                                perform("Disconnect") {
                                     sessionService.disconnect()
                                 }
                             },
                             onDisconnectPeer = { peerId ->
-                                reportUiFailure(errorReporter, "Disconnect listener") {
+                                perform("Disconnect listener") {
                                     sessionService.disconnectPeer(peerId)
                                 }
                             },

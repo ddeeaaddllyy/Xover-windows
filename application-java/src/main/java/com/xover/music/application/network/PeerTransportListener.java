@@ -10,7 +10,7 @@ public interface PeerTransportListener {
     default void onPeerDisconnected(String peerId) {
     }
 
-    default void onMessage(PeerMessage message) {
+    default void onMessage(String peerId, PeerMessage message) {
     }
 
     default void onTransportError(String message, Throwable cause) {

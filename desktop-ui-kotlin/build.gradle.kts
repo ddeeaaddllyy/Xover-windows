@@ -11,6 +11,8 @@ kotlin {
 sourceSets {
     main {
         resources.srcDir(rootProject.file("assets"))
+        // The bundled font has no redistribution license recorded in the repository.
+        resources.exclude("fonts/**")
     }
 }
 
@@ -19,4 +21,7 @@ dependencies {
 
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
     implementation(compose.desktop.currentOs)
+    testImplementation(platform("org.junit:junit-bom:5.13.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

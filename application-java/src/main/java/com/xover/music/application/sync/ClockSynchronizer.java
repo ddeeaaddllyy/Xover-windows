@@ -9,6 +9,15 @@ public final class ClockSynchronizer {
     private volatile long offsetMillis;
     private volatile boolean synchronizedOnce;
 
+    public void reset() {
+        offsetMillis = 0L;
+        synchronizedOnce = false;
+    }
+
+    public boolean isSynchronized() {
+        return synchronizedOnce;
+    }
+
     public void applySample(
         long clientSentAtMillis,
         long clientReceivedAtMillis,

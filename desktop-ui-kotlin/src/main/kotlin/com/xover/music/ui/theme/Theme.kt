@@ -14,14 +14,8 @@ import com.xover.music.domain.SessionViewState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
-import androidx.compose.ui.text.platform.Font as DesktopFont
 
-internal val XoverFontFamily: FontFamily = FontFamily(
-    DesktopFont("fonts/Xover-text.ttf", FontWeight.Normal),
-    DesktopFont("fonts/Xover-text.ttf", FontWeight.Medium),
-    DesktopFont("fonts/Xover-text.ttf", FontWeight.SemiBold),
-    DesktopFont("fonts/Xover-text.ttf", FontWeight.Bold),
-)
+internal val XoverFontFamily: FontFamily = FontFamily.SansSerif
 
 internal fun statusTitle(state: SessionViewState): String = when (state.connectionStatus()) {
     ConnectionStatus.DISCONNECTED -> "ready to connect"

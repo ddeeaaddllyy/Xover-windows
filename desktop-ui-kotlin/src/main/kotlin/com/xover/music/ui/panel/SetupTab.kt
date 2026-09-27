@@ -1,6 +1,7 @@
 package com.xover.music.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,21 +43,55 @@ internal fun SetupTab(
         SegmentedRole(selectedRole = selectedRole, onRoleSelected = onRoleSelected)
     }
 
-    AnimatedVisibility(
-        visible = selectedRole == SetupRole.HOST,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Section("Host network") {
+    Crossfade(
+        targetState = selectedRole,
+        animationSpec = tween(180),
+        label = "setupRole",
+    ) { role ->
+        if (role == SetupRole.HOST) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Section("Host network") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = advertisedHost,
+                            onValueChange = onAdvertisedHostChange,
+                            label = { Text("Your VPN IP") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            enabled = !hostActive && !blockedByClient,
+                        )
+                        OutlinedTextField(
+                            value = port,
+                            onValueChange = onPortChange,
+                            label = { Text("Port") },
+                            modifier = Modifier.width(104.dp),
+                            singleLine = true,
+                            enabled = !hostActive && !blockedByClient,
+                        )
+                    }
+                    AddressPreview("Friend connects to", advertisedHost, port)
+                    StatusRow(
+                        "Connected listeners",
+                        state.connectedPeerIds().size.toString()
+                    )
+                    PrimaryButton(
+                        text = if (hostActive) "Stop hosting" else "Start hosting",
+                        onClick = if (hostActive) onDisconnect else onHost,
+                        enabled = hostActive || !blockedByClient,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        } else {
+            Section("Join host") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
-                        value = advertisedHost,
-                        onValueChange = onAdvertisedHostChange,
-                        label = { Text("Your VPN IP") },
+                        value = connectHost,
+                        onValueChange = onConnectHostChange,
+                        label = { Text("Host VPN IP") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        enabled = !hostActive && !blockedByClient,
+                        enabled = !clientActive && !blockedByHost,
                     )
                     OutlinedTextField(
                         value = port,
@@ -64,55 +99,17 @@ internal fun SetupTab(
                         label = { Text("Port") },
                         modifier = Modifier.width(104.dp),
                         singleLine = true,
-                        enabled = !hostActive && !blockedByClient,
+                        enabled = !clientActive && !blockedByHost,
                     )
                 }
-                AddressPreview("Friend connects to", advertisedHost, port)
-                StatusRow(
-                    "Connected listeners",
-                    state.connectedPeerIds().size.toString()
-                )
+                AddressPreview("Opening", connectHost, port)
                 PrimaryButton(
-                    text = if (hostActive) "Stop hosting" else "Start hosting",
-                    onClick = if (hostActive) onDisconnect else onHost,
-                    enabled = hostActive || !blockedByClient,
+                    text = if (clientActive) "Disconnect" else "Connect",
+                    onClick = if (clientActive) onDisconnect else onConnect,
+                    enabled = clientActive || !blockedByHost,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-        }
-    }
-
-    AnimatedVisibility(
-        visible = selectedRole == SetupRole.CLIENT,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
-    ) {
-        Section("Join host") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedTextField(
-                    value = connectHost,
-                    onValueChange = onConnectHostChange,
-                    label = { Text("Host VPN IP") },
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    enabled = !clientActive && !blockedByHost,
-                )
-                OutlinedTextField(
-                    value = port,
-                    onValueChange = onPortChange,
-                    label = { Text("Port") },
-                    modifier = Modifier.width(104.dp),
-                    singleLine = true,
-                    enabled = !clientActive && !blockedByHost,
-                )
-            }
-            AddressPreview("Opening", connectHost, port)
-            PrimaryButton(
-                text = if (clientActive) "Disconnect" else "Connect",
-                onClick = if (clientActive) onDisconnect else onConnect,
-                enabled = clientActive || !blockedByHost,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
