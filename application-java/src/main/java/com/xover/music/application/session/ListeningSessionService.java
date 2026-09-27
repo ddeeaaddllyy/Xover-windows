@@ -4,7 +4,7 @@ import com.xover.music.application.audio.AudioPlayerListener;
 import com.xover.music.application.audio.AudioPlayerPort;
 import com.xover.music.application.clock.Clock;
 import com.xover.music.application.common.diagnostics.ErrorReporter;
-import com.xover.music.application.playlist.error.InvalidTrackSourceException;
+import com.xover.music.application.playlist.TrackSourceValidator;
 import com.xover.music.application.network.error.NetworkTransportException;
 import com.xover.music.application.network.error.RemoteProtocolException;
 import com.xover.music.application.common.error.UnexpectedXoverException;
@@ -156,14 +156,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         }
 
         try {
-            URI sourceUri = validateTrackSource(sourceUrl);
+            URI sourceUri = TrackSourceValidator.requireSafeSource(sourceUrl);
             PlaylistTrack track = PlaylistTrack.create(titleFromUri(sourceUri), sourceUri.toString());
             boolean[] shouldLoad = new boolean[1];
 
             updateState(previous -> {
                 List<PlaylistTrack> nextPlaylist = new ArrayList<>(previous.playlist());
                 nextPlaylist.add(track);
-                int nextIndex = previous.currentTrackIndex() < 0 ? 0 : previous.currentTrackIndex();
+                int nextIndex = Math.max(previous.currentTrackIndex(), 0);
                 shouldLoad[0] = previous.currentTrackIndex() < 0 && previous.role() == DeviceRole.HOST;
                 return previous
                     .withPlaylist(nextPlaylist, nextIndex)
@@ -478,7 +478,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 .withTrack(message.trackName(), 0L)
                 .withMessage("Loading remote track")
             );
-            audioPlayer.load(URI.create(message.mediaUri()));
+            audioPlayer.load(TrackSourceValidator.requireSafeSource(message.mediaUri()));
         } catch (RuntimeException ex) {
             fail("Could not load remote track", ex);
         }
@@ -486,11 +486,12 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     private void applyRemotePlaylist(PeerMessage message) {
         try {
+            List<PlaylistTrack> safePlaylist = safeRemotePlaylist(message.playlist());
             boolean[] trackChanged = new boolean[1];
             updateState(previous -> previous
-                .withPlaylist(message.playlist(), message.currentTrackIndex())
-                .withPlaybackStatus(nextPlaylistStatus(previous, message, trackChanged))
-                .withMessage(message.playlist().isEmpty() ? "Playlist is empty" : "Playlist updated")
+                .withPlaylist(safePlaylist, message.currentTrackIndex())
+                .withPlaybackStatus(nextPlaylistStatus(previous, safePlaylist, message.currentTrackIndex(), trackChanged))
+                .withMessage(safePlaylist.isEmpty() ? "Playlist is empty" : "Playlist updated")
             );
             if (trackChanged[0]) {
                 stopPendingPlayTask();
@@ -519,7 +520,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             .withTrack(track.title(), 0L)
             .withMessage(loadingMessage)
         );
-        audioPlayer.load(URI.create(track.sourceUrl()));
+        audioPlayer.load(TrackSourceValidator.requireSafeSource(track.sourceUrl()));
     }
 
     private void broadcastPlaylist() {
@@ -532,14 +533,28 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         transport.sendToPeer(peerId, PeerMessage.playlistUpdated(state.playlist(), state.currentTrackIndex()));
     }
 
-    private PlaybackStatus nextPlaylistStatus(SessionViewState previous, PeerMessage message, boolean[] trackChanged) {
-        if (message.playlist().isEmpty()) {
+    private List<PlaylistTrack> safeRemotePlaylist(List<PlaylistTrack> playlist) {
+        List<PlaylistTrack> safePlaylist = new ArrayList<>();
+        for (PlaylistTrack track : playlist) {
+            URI sourceUri = TrackSourceValidator.requireSafeSource(track.sourceUrl());
+            safePlaylist.add(new PlaylistTrack(track.id(), track.title(), sourceUri.toString()));
+        }
+        return safePlaylist;
+    }
+
+    private PlaybackStatus nextPlaylistStatus(
+        SessionViewState previous,
+        List<PlaylistTrack> playlist,
+        int currentTrackIndex,
+        boolean[] trackChanged
+    ) {
+        if (playlist.isEmpty()) {
             trackChanged[0] = previous.currentTrack() != null;
             return PlaybackStatus.STOPPED;
         }
 
-        int nextIndex = Math.max(0, Math.min(message.playlist().size() - 1, message.currentTrackIndex()));
-        PlaylistTrack nextTrack = message.playlist().get(nextIndex);
+        int nextIndex = Math.max(0, Math.min(playlist.size() - 1, currentTrackIndex));
+        PlaylistTrack nextTrack = playlist.get(nextIndex);
         trackChanged[0] = !sameTrack(previous.currentTrack(), nextTrack);
         return trackChanged[0] ? PlaybackStatus.LOADING : previous.playbackStatus();
     }
@@ -696,23 +711,6 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             task.cancel(false);
             pendingPlayTask = null;
         }
-    }
-
-    private URI validateTrackSource(String sourceUrl) {
-        if (sourceUrl == null || sourceUrl.isBlank()) {
-            throw InvalidTrackSourceException.blank();
-        }
-        URI uri;
-        try {
-            uri = URI.create(sourceUrl.trim());
-        } catch (IllegalArgumentException ex) {
-            throw InvalidTrackSourceException.malformed(sourceUrl, ex);
-        }
-        String scheme = uri.getScheme();
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
-            throw InvalidTrackSourceException.unsupportedScheme(uri);
-        }
-        return uri;
     }
 
     private String titleFromUri(URI uri) {

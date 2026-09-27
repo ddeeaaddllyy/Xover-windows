@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.xover.music"
-version = "1.7.4"
+version = "1.8.4"
 
 subprojects {
     group = rootProject.group

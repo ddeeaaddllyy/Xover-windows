@@ -20,7 +20,7 @@ val javafxPlatform = when {
 dependencies {
     implementation(project(":application-java"))
 
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.22.3")
     implementation("org.openjfx:javafx-base:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-graphics:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-media:$javafxVersion:$javafxPlatform")

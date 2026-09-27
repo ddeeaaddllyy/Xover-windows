@@ -32,4 +32,12 @@ public final class InvalidTrackSourceException extends XoverException {
             sourceUri.toString() + " (scheme=" + scheme + ")"
         );
     }
+
+    public static InvalidTrackSourceException unsafe(String sourceUrl, String reason) {
+        return new InvalidTrackSourceException(
+            "Track URL must point to a public internet host: " + reason,
+            null,
+            sourceUrl
+        );
+    }
 }

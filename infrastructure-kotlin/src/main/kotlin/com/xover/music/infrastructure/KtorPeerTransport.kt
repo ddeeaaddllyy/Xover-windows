@@ -42,6 +42,10 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
+private const val WEBSOCKET_PING_INTERVAL_MILLIS = 15_000L
+private const val WEBSOCKET_TIMEOUT_MILLIS = 30_000L
+private const val MAX_SYNC_FRAME_BYTES = 64 * 1024L
+
 class KtorPeerTransport : PeerTransportPort {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json {
@@ -71,7 +75,11 @@ class KtorPeerTransport : PeerTransportPort {
 
         try {
             server = embeddedServer(Netty, host = config.bindHost(), port = config.port()) {
-                install(ServerWebSockets)
+                install(ServerWebSockets) {
+                    pingPeriodMillis = WEBSOCKET_PING_INTERVAL_MILLIS
+                    timeoutMillis = WEBSOCKET_TIMEOUT_MILLIS
+                    maxFrameSize = MAX_SYNC_FRAME_BYTES
+                }
                 routing {
                     get("/health") {
                         call.respondText("Xover host is alive")
@@ -109,7 +117,10 @@ class KtorPeerTransport : PeerTransportPort {
         closeClient()
 
         val nextClient = HttpClient(CIO) {
-            install(ClientWebSockets)
+            install(ClientWebSockets) {
+                pingIntervalMillis = WEBSOCKET_PING_INTERVAL_MILLIS
+                maxFrameSize = MAX_SYNC_FRAME_BYTES
+            }
         }
         client = nextClient
 

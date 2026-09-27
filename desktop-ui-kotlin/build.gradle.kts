@@ -17,6 +17,6 @@ sourceSets {
 dependencies {
     implementation(project(":application-java"))
 
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
     implementation(compose.desktop.currentOs)
 }

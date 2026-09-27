@@ -10,7 +10,7 @@ kotlin {
 dependencies {
     implementation(project(":application-java"))
 
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.0")
     implementation("io.ktor:ktor-server-core-jvm:3.6.0")
     implementation("io.ktor:ktor-server-netty-jvm:3.6.0")
     implementation("io.ktor:ktor-server-websockets-jvm:3.6.0")

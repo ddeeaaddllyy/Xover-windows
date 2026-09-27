@@ -42,6 +42,7 @@ final class ExternalMediaResolver {
             boolean finished = process.waitFor(55, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
                 throw new IOException(command.get() + " timed out for " + mediaUri);
             }
 
@@ -92,7 +93,13 @@ final class ExternalMediaResolver {
         builder.redirectErrorStream(true);
         try {
             Process process = builder.start();
-            return process.waitFor(3, TimeUnit.SECONDS) && process.exitValue() == 0;
+            boolean finished = process.waitFor(3, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+                return false;
+            }
+            return process.exitValue() == 0;
         } catch (IOException | InterruptedException ex) {
             if (ex instanceof InterruptedException) {
                 Thread.currentThread().interrupt();

@@ -245,6 +245,7 @@ final class SoundCloudMediaResolver {
             boolean finished = process.waitFor(40, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
                 throw new IOException("curl timed out for " + uri, javaHttpFailure);
             }
 
