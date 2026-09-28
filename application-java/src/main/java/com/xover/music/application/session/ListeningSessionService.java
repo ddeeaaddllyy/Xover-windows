@@ -309,6 +309,24 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         awaitReadiness();
     }
 
+    public synchronized void nextTrack() {
+        if (state.role() != DeviceRole.HOST || state.currentTrackIndex() + 1 >= state.playlist().size()) {
+            return;
+        }
+        boolean resume = state.playbackStatus() == PlaybackStatus.PLAYING || playRequested || pendingPlayTask != null;
+        selectTrack(state.currentTrackIndex() + 1);
+        if (resume) play();
+    }
+
+    /** Stop at the beginning, keeping the loaded track available for Play. */
+    public synchronized void stopPlayback() {
+        if (state.role() != DeviceRole.HOST || state.currentTrack() == null) {
+            return;
+        }
+        pause();
+        seek(0L);
+    }
+
     public synchronized void pause() {
         if (state.role() != DeviceRole.HOST) {
             return;

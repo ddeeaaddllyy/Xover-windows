@@ -13,7 +13,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.xover.music.domain.DeviceRole
+import com.xover.music.domain.LikedTrack
+import com.xover.music.domain.PlaybackStatus
 import com.xover.music.domain.SessionViewState
 import java.awt.Window as AwtWindow
 
@@ -42,6 +46,12 @@ internal fun XoverPanel(
     onLocalVolumeChange: (Int) -> Unit,
     onDisconnect: () -> Unit,
     onDisconnectPeer: (String) -> Unit,
+    likedTracks: List<LikedTrack> = emptyList(),
+    likesEnabled: Boolean = false,
+    likesLoading: Boolean = false,
+    likesFailed: Boolean = false,
+    onRetryLikes: () -> Unit = {},
+    onToggleLike: (String, String) -> Unit = { _, _ -> },
 ) {
     val animatedOpacity by animateFloatAsState(
         settings.opacity, animationSpec = gentleMotion(), label = "panelOpacity",
@@ -97,6 +107,9 @@ internal fun XoverPanel(
 
                     XoverTab.PLAYER -> PlayerTab(
                         state = state,
+                        likedUrls = likedTracks.map { it.sourceUrl() }.toSet(),
+                        likesEnabled = likesEnabled,
+                        onToggleLike = onToggleLike,
                         onAddTrackUrl = onAddTrackUrl,
                         onSelectTrack = onSelectTrack,
                         onRemoveTrack = onRemoveTrack,
@@ -105,6 +118,17 @@ internal fun XoverPanel(
                         onPause = onPause,
                         onSeek = onSeek,
                         onLocalVolumeChange = onLocalVolumeChange,
+                    )
+
+                    XoverTab.LIKED -> LikedTracksTab(
+                        tracks = likedTracks,
+                        canAdd = state.role() != DeviceRole.CLIENT,
+                        likesEnabled = likesEnabled,
+                        loading = likesLoading,
+                        failed = likesFailed,
+                        onRetry = onRetryLikes,
+                        onAdd = onAddTrackUrl,
+                        onToggleLike = onToggleLike,
                     )
 
                     XoverTab.STATUS -> StatusTab(
@@ -136,7 +160,14 @@ internal fun CollapsedRail(
     awtWindow: AwtWindow,
     onExpand: () -> Unit,
     onMinimize: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onStop: () -> Unit,
+    onMute: () -> Unit,
 ) {
+    val host = state.role() == DeviceRole.HOST
+    val hasTrack = state.currentTrack() != null
+    val playing = state.playbackStatus() in setOf(PlaybackStatus.PLAYING, PlaybackStatus.WAITING)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -145,18 +176,47 @@ internal fun CollapsedRail(
     ) {
         Column(
             modifier = Modifier
-                .width(64.dp)
+                .fillMaxSize()
                 .clip(RoundedCornerShape(24.dp))
                 .background(SurfaceColor.copy(alpha = opacity))
                 .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(24.dp))
-                .padding(10.dp),
+                .padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            StatusDot(state.connectionStatus())
-            Text("XO", fontWeight = FontWeight.Bold, color = PrimaryText, modifier = Modifier.windowDrag(awtWindow))
-            WindowControlButton(">", ControlGreen, onExpand)
-            WindowControlButton("-", ControlYellow, onMinimize)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StatusDot(state.connectionStatus())
+                Text(
+                    state.trackName().ifBlank { "Xover" },
+                    color = PrimaryText,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).windowDrag(awtWindow),
+                )
+                WindowControlButton(">", ControlGreen, onExpand)
+                WindowControlButton("-", ControlYellow, onMinimize)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SoftButton(
+                    if (playing) "Pause" else "Play", onPlayPause,
+                    modifier = Modifier.weight(1f),
+                    enabled = host && hasTrack && state.playbackStatus() != PlaybackStatus.ERROR,
+                )
+                SoftButton(
+                    "Next", onNext, modifier = Modifier.weight(1f),
+                    enabled = host && state.currentTrackIndex() < state.playlist().lastIndex,
+                )
+                SoftButton("Stop", onStop, modifier = Modifier.weight(1f), enabled = host && hasTrack)
+                SoftButton(
+                    if (state.localVolumePercent() == 0) "Unmute" else "Mute", onMute,
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
