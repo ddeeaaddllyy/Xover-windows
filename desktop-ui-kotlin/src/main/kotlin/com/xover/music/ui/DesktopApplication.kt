@@ -1,11 +1,11 @@
 package com.xover.music.ui
 
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
@@ -15,18 +15,20 @@ import androidx.compose.ui.window.rememberWindowState
 import com.xover.music.application.common.diagnostics.ErrorEventSource
 import com.xover.music.application.common.diagnostics.ErrorReporter
 import com.xover.music.application.session.ListeningSessionService
+import com.xover.music.domain.PlaybackStatus
+import com.xover.music.application.library.LikedTracksService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.asCoroutineDispatcher
-import java.awt.Frame
 import java.util.concurrent.Executors
 
 class DesktopApplication(
     private val sessionService: ListeningSessionService,
     private val errorEvents: ErrorEventSource,
     private val errorReporter: ErrorReporter,
+    private val likedTracksService: LikedTracksService,
 ) {
     fun start() = application {
         val settingsStore = remember { UiSettingsStore() }
@@ -45,6 +47,10 @@ class DesktopApplication(
         DisposableEffect(sessionDispatcher) {
             onDispose { sessionDispatcher.close() }
         }
+        val likedTracks = remember {
+            LikedTracksState(likedTracksService, errorReporter, scope, sessionDispatcher)
+        }
+        LaunchedEffect(Unit) { likedTracks.refresh() }
         val perform: (String, () -> Unit) -> Unit = { operation, action ->
             if (!closing) scope.launch(sessionDispatcher) { reportUiFailure(errorReporter, operation, action) }
         }
@@ -79,20 +85,17 @@ class DesktopApplication(
             position = WindowPosition(24.dp, 92.dp),
             size = ExpandedSize,
         )
-        val targetSize = if (collapsed) CollapsedSize else ExpandedSize
-        val animatedWidth by animateDpAsState(
-            targetValue = targetSize.width,
-            animationSpec = gentleMotion(),
-            label = "windowWidth",
-        )
-        val animatedHeight by animateDpAsState(
-            targetValue = targetSize.height,
-            animationSpec = gentleMotion(),
-            label = "windowHeight",
+        val collapseProgress by animateFloatAsState(
+            targetValue = if (collapsed) 1f else 0f,
+            animationSpec = tween(320, easing = FastOutSlowInEasing),
+            label = "windowCollapse",
         )
 
-        SideEffect {
-            windowState.size = DpSize(animatedWidth, animatedHeight)
+        LaunchedEffect(collapseProgress) {
+            windowState.size = DpSize(
+                ExpandedSize.width + (CollapsedSize.width - ExpandedSize.width) * collapseProgress,
+                ExpandedSize.height + (CollapsedSize.height - ExpandedSize.height) * collapseProgress,
+            )
         }
 
         Window(
@@ -105,31 +108,58 @@ class DesktopApplication(
             alwaysOnTop = settings.pinned,
             icon = appIcon,
         ) {
+            val focusManager = LocalFocusManager.current
+            LaunchedEffect(collapsed) { focusManager.clearFocus(force = true) }
             val state = rememberSessionState(sessionService)
+            var audibleVolume by remember { mutableStateOf(100) }
+            LaunchedEffect(state.value.localVolumePercent()) {
+                if (state.value.localVolumePercent() > 0) audibleVolume = state.value.localVolumePercent()
+            }
             val minimizeWindow = {
-                window.extendedState = Frame.ICONIFIED
+                windowState.isMinimized = true
             }
 
             MaterialTheme(
                 colors = xoverColors(),
                 typography = xoverTypography(),
             ) {
-                Crossfade(
-                    targetState = collapsed,
-                    animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-                    label = "panelCrossfade",
-                ) { isCollapsed ->
-                    if (isCollapsed) {
+                PanelTransition(
+                    progress = collapseProgress,
+                    compact = {
                         CollapsedRail(
                             state = state.value,
                             opacity = settings.opacity,
                             awtWindow = window,
                             onExpand = { collapsed = false },
                             onMinimize = minimizeWindow,
+                            onPlayPause = {
+                                perform("Toggle playback") {
+                                    if (sessionService.currentState().playbackStatus() in setOf(
+                                            PlaybackStatus.PLAYING,
+                                            PlaybackStatus.WAITING,
+                                        )) sessionService.pause() else sessionService.play()
+                                }
+                            },
+                            onNext = { perform("Next track") { sessionService.nextTrack() } },
+                            onStop = { perform("Stop playback") { sessionService.stopPlayback() } },
+                            onMute = {
+                                val restoreVolume = audibleVolume
+                                perform("Toggle local mute") {
+                                    val volume = sessionService.currentState().localVolumePercent()
+                                    sessionService.setLocalVolumePercent(if (volume == 0) restoreVolume else 0)
+                                }
+                            },
                         )
-                    } else {
+                    },
+                    expanded = {
                         XoverPanel(
                             state = state.value,
+                            likedTracks = likedTracks.tracks,
+                            likesEnabled = likedTracks.ready && !likedTracks.busy && !closing,
+                            likesLoading = likedTracks.busy,
+                            likesFailed = likedTracks.failed,
+                            onRetryLikes = { likedTracks.refresh() },
+                            onToggleLike = { url, title -> if (!closing) likedTracks.toggle(url, title) },
                             awtWindow = window,
                             settings = settings,
                             onSettingsChange = { settings = it },
@@ -201,8 +231,8 @@ class DesktopApplication(
                                 }
                             },
                         )
-                    }
-                }
+                    },
+                )
             }
         }
 

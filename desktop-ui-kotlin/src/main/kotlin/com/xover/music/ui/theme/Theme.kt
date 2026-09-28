@@ -14,8 +14,14 @@ import com.xover.music.domain.SessionViewState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlin.math.max
+import androidx.compose.ui.text.platform.Font as DesktopFont
 
-internal val XoverFontFamily: FontFamily = FontFamily.SansSerif
+internal val XoverFontFamily: FontFamily = FontFamily(
+    DesktopFont("fonts/Xover-text.ttf", FontWeight.Normal),
+    DesktopFont("fonts/Xover-text.ttf", FontWeight.Medium),
+    DesktopFont("fonts/Xover-text.ttf", FontWeight.SemiBold),
+    DesktopFont("fonts/Xover-text.ttf", FontWeight.Bold),
+)
 
 internal fun statusTitle(state: SessionViewState): String = when (state.connectionStatus()) {
     ConnectionStatus.DISCONNECTED -> "ready to connect"
@@ -72,6 +78,7 @@ internal fun xoverTypography() = Typography(
 internal enum class XoverTab(val title: String) {
     SETUP("Setup"),
     PLAYER("Player"),
+    LIKED("Liked"),
     STATUS("Status"),
     MORE("More"),
 }
@@ -85,7 +92,7 @@ internal const val DefaultPort = 47321
 internal const val AppIconResource = "icon/XoverIcon.png"
 
 internal val ExpandedSize = DpSize(430.dp, 720.dp)
-internal val CollapsedSize = DpSize(84.dp, 212.dp)
+internal val CollapsedSize = DpSize(344.dp, 132.dp)
 internal val ErrorWindowSize = DpSize(660.dp, 640.dp)
 internal val ErrorTimestampFormatter = DateTimeFormatter
     .ofPattern("yyyy-MM-dd HH:mm:ss z")

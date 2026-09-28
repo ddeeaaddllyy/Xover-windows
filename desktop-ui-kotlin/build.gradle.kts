@@ -11,8 +11,6 @@ kotlin {
 sourceSets {
     main {
         resources.srcDir(rootProject.file("assets"))
-        // The bundled font has no redistribution license recorded in the repository.
-        resources.exclude("fonts/**")
     }
 }
 

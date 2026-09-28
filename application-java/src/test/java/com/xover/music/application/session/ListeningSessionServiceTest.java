@@ -297,6 +297,83 @@ final class ListeningSessionServiceTest {
     }
 
     @Test
+    void nextTrackKeepsPlayingButWaitsForNewReadiness() {
+        hostWithTrack("friend");
+        service.addTrackUrl("https://example.com/second.mp3");
+        audio.ready();
+        service.onMessage("friend", PeerMessage.trackReady(audio.loadId));
+        service.play();
+        scheduler.advance(750);
+        String previousLoad = audio.loadId;
+        service.nextTrack();
+        assertEquals(1, service.currentState().currentTrackIndex());
+        assertNotEquals(previousLoad, audio.loadId);
+        audio.ready();
+        scheduler.advance(1_000);
+        assertEquals(1, audio.plays);
+        service.onMessage("friend", PeerMessage.trackReady(audio.loadId));
+        scheduler.advance(750);
+        assertEquals(2, audio.plays);
+    }
+
+    @Test
+    void nextTrackWhilePausedDoesNotStartAndStopsAtEndOfPlaylist() {
+        hostWithTrack();
+        service.addTrackUrl("https://example.com/second.mp3");
+        service.nextTrack();
+        audio.ready();
+        String lastLoad = audio.loadId;
+        service.nextTrack();
+        scheduler.advance(1_000);
+        assertEquals(1, service.currentState().currentTrackIndex());
+        assertEquals(lastLoad, audio.loadId);
+        assertEquals(0, audio.plays);
+    }
+
+    @Test
+    void stopRewindsEveryoneAndDoesNotResume() {
+        hostWithTrack();
+        audio.ready();
+        service.play();
+        scheduler.advance(750);
+        audio.position = Duration.ofSeconds(12);
+        service.stopPlayback();
+        scheduler.advance(1_000);
+        assertEquals(Duration.ZERO, audio.position);
+        assertEquals(0, service.currentState().positionMillis());
+        assertEquals(PlaybackStatus.PAUSED, service.currentState().playbackStatus());
+        assertEquals(MessageType.SEEK, transport.broadcasts.getLast().type());
+        assertEquals(0, transport.broadcasts.getLast().positionMillis());
+        assertEquals(1, audio.plays);
+    }
+
+    @Test
+    void stopCancelsWaitingAndScheduledPlayback() {
+        hostWithTrack();
+        service.play();
+        service.stopPlayback();
+        audio.ready();
+        scheduler.advance(1_000);
+        assertEquals(0, audio.plays);
+        service.play();
+        service.stopPlayback();
+        scheduler.advance(1_000);
+        assertEquals(0, audio.plays);
+    }
+
+    @Test
+    void compactPlaybackActionsCannotControlAClientSession() {
+        readyClient();
+        int pauses = audio.pauses;
+        String load = audio.loadId;
+        service.nextTrack();
+        service.stopPlayback();
+        assertEquals(load, audio.loadId);
+        assertEquals(pauses, audio.pauses);
+        assertEquals(0, transport.playCount());
+    }
+
+    @Test
     void readyCallbackAfterAnErrorCannotReviveTheFailedLoad() {
         hostWithTrack();
         service.onError(audio.loadId, "failed", new IllegalStateException());
