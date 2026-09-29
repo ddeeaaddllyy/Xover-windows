@@ -50,6 +50,8 @@ Relevant fields:
 - `currentTrackIndex`
 
 Clients load the selected `sourceUrl` themselves. The host sends only metadata and links, not audio bytes.
+Renaming a track updates its title in the playlist while keeping its ID, source URL, and `loadId`.
+Clients display the new title without reloading or interrupting playback.
 
 `loadId` identifies one loading attempt, including reselecting the same track. The host
 generates it; all readiness and playback messages refer to it. Reordering the playlist

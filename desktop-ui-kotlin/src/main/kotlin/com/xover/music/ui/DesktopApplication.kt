@@ -188,6 +188,11 @@ class DesktopApplication(
                                     sessionService.selectTrack(trackIndex)
                                 }
                             },
+                            onRenameTrack = { trackIndex, title ->
+                                perform("Rename track") {
+                                    sessionService.renameTrack(trackIndex, title)
+                                }
+                            },
                             onRemoveTrack = { trackIndex ->
                                 perform("Remove track") {
                                     sessionService.removeTrackAt(trackIndex)

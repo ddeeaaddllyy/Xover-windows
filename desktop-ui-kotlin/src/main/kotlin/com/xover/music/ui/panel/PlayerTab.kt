@@ -13,6 +13,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Slider
@@ -22,9 +23,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -47,6 +56,7 @@ internal fun PlayerTab(
     onToggleLike: (String, String) -> Unit,
     onAddTrackUrl: (String) -> Unit,
     onSelectTrack: (Int) -> Unit,
+    onRenameTrack: (Int, String) -> Unit = { _, _ -> },
     onRemoveTrack: (Int) -> Unit,
     onMoveTrack: (Int, Int) -> Unit,
     onPlay: () -> Unit,
@@ -139,6 +149,7 @@ internal fun PlayerTab(
             tracks = state.playlist(), likedUrls = likedUrls, likesEnabled = likesEnabled,
             onToggleLike = onToggleLike, currentTrackIndex = state.currentTrackIndex(), canEdit = canEditPlaylist,
             onSelectTrack = onSelectTrack, onRemoveTrack = onRemoveTrack, onMoveTrack = onMoveTrack, onAddTrackUrl = onAddTrackUrl,
+            onRenameTrack = onRenameTrack,
         )
     }
 
@@ -153,6 +164,7 @@ internal fun PlaylistEditor(
     currentTrackIndex: Int,
     canEdit: Boolean,
     onSelectTrack: (Int) -> Unit,
+    onRenameTrack: (Int, String) -> Unit = { _, _ -> },
     onRemoveTrack: (Int) -> Unit,
     onMoveTrack: (Int, Int) -> Unit,
     onAddTrackUrl: (String) -> Unit,
@@ -175,6 +187,7 @@ internal fun PlaylistEditor(
                     selected = index == currentTrackIndex,
                     canEdit = canEdit,
                     onSelect = { onSelectTrack(index) },
+                    onRename = { title -> onRenameTrack(index, title) },
                     onDuplicate = { onAddTrackUrl(track.sourceUrl()) },
                     onRemove = { onRemoveTrack(index) },
                     onMove = { targetIndex -> onMoveTrack(index, targetIndex) },
@@ -195,6 +208,7 @@ internal fun PlaylistTrackRow(
     selected: Boolean,
     canEdit: Boolean,
     onSelect: () -> Unit,
+    onRename: (String) -> Unit = {},
     onDuplicate: () -> Unit,
     onRemove: () -> Unit,
     onMove: (Int) -> Unit,
@@ -208,6 +222,24 @@ internal fun PlaylistTrackRow(
     var swiping by remember(track.id()) { mutableStateOf(false) }
     var clickPulse by remember(track.id()) { mutableStateOf(false) }
     var contextMenuOffset by remember(track.id()) { mutableStateOf<IntOffset?>(null) }
+    var editing by remember(track.id()) { mutableStateOf(false) }
+    var draftTitle by remember(track.id()) { mutableStateOf(track.title()) }
+    val renameFocus = remember(track.id()) { FocusRequester() }
+    LaunchedEffect(editing) {
+        if (editing) renameFocus.requestFocus()
+    }
+    fun beginRename() {
+        draftTitle = track.title()
+        contextMenuOffset = null
+        editing = true
+    }
+    fun saveRename() {
+        val title = draftTitle.trim()
+        if (title.isNotEmpty() && title.length <= 160) {
+            editing = false
+            onRename(title)
+        }
+    }
     val rowInteractionSource = remember { MutableInteractionSource() }
     val rowHovered by rowInteractionSource.collectIsHoveredAsState()
     val rowPressed by rowInteractionSource.collectIsPressedAsState()
@@ -329,7 +361,7 @@ internal fun PlaylistTrackRow(
                 }
                 .hoverable(rowInteractionSource, enabled = canEdit)
                 .clickable(
-                    enabled = canEdit,
+                    enabled = canEdit && !editing,
                     indication = null,
                     interactionSource = rowInteractionSource,
                     onClick = {
@@ -349,13 +381,35 @@ internal fun PlaylistTrackRow(
                 style = MaterialTheme.typography.caption,
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = track.title(),
-                    color = PrimaryText,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (editing) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        BasicTextField(
+                            value = draftTitle,
+                            onValueChange = { draftTitle = it.take(160) },
+                            modifier = Modifier.weight(1f).focusRequester(renameFocus).onPreviewKeyEvent {
+                                if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (it.key) {
+                                    Key.Enter -> { saveRename(); true }
+                                    Key.Escape -> { editing = false; true }
+                                    else -> false
+                                }
+                            },
+                            singleLine = true,
+                            cursorBrush = SolidColor(AccentColor),
+                            textStyle = MaterialTheme.typography.body1.copy(color = PrimaryText),
+                        )
+                        Text("✓", color = AccentColor, modifier = Modifier.clickable { saveRename() })
+                        Text("×", color = SecondaryText, modifier = Modifier.clickable { editing = false })
+                    }
+                } else {
+                    Text(
+                        text = track.title(),
+                        color = PrimaryText,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     text = track.sourceUrl(),
                     color = SecondaryText,
@@ -366,6 +420,7 @@ internal fun PlaylistTrackRow(
             }
             LikeButton(liked, likesEnabled, onToggleLike)
             if (canEdit) {
+                Text("✎", color = AccentColor, modifier = Modifier.clickable { beginRename() })
                 Text(
                     text = "::",
                     color = SecondaryText,
@@ -411,6 +466,7 @@ internal fun PlaylistTrackRow(
                     clickPulse = true
                     onSelect()
                 },
+                onRename = { beginRename() },
                 onDuplicate = onDuplicate,
                 onRemove = onRemove,
             )

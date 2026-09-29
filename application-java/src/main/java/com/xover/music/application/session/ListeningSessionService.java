@@ -318,6 +318,34 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         if (resume) play();
     }
 
+    public synchronized void renameTrack(int trackIndex, String title) {
+        if (state.role() == DeviceRole.CLIENT) {
+            updateState(previous -> previous.withMessage("Only host can edit the playlist"));
+            return;
+        }
+        if (trackIndex < 0 || trackIndex >= state.playlist().size()) {
+            return;
+        }
+        String nextTitle = title == null ? "" : title.trim();
+        if (nextTitle.isBlank() || nextTitle.length() > 160) {
+            updateState(previous -> previous.withMessage("Track title must be 1 to 160 characters"));
+            return;
+        }
+        PlaylistTrack current = state.playlist().get(trackIndex);
+        if (current.title().equals(nextTitle)) {
+            return;
+        }
+
+        updateState(previous -> {
+            List<PlaylistTrack> nextPlaylist = new ArrayList<>(previous.playlist());
+            PlaylistTrack track = nextPlaylist.get(trackIndex);
+            nextPlaylist.set(trackIndex, new PlaylistTrack(track.id(), nextTitle, track.sourceUrl()));
+            return previous.withPlaylist(nextPlaylist, previous.currentTrackIndex())
+                .withMessage("Renamed track: " + nextTitle);
+        });
+        broadcastPlaylist();
+    }
+
     /** Stop at the beginning, keeping the loaded track available for Play. */
     public synchronized void stopPlayback() {
         if (state.role() != DeviceRole.HOST || state.currentTrack() == null) {

@@ -138,6 +138,52 @@ final class ListeningSessionServiceTest {
     }
 
     @Test
+    void renamingCurrentTrackKeepsPlaybackAndSharesTitleWithListeners() {
+        hostWithTrack("friend");
+        audio.ready();
+        service.onMessage("friend", PeerMessage.trackReady(audio.loadId));
+        service.play();
+        scheduler.advance(750);
+        String load = audio.loadId;
+        int loads = audio.loads;
+        service.renameTrack(0, "  Midnight Drive  ");
+
+        assertEquals("Midnight Drive", service.currentState().trackName());
+        assertEquals("Midnight Drive", service.currentState().currentTrack().title());
+        assertEquals(PlaybackStatus.PLAYING, service.currentState().playbackStatus());
+        assertEquals(load, audio.loadId);
+        assertEquals(loads, audio.loads);
+        PeerMessage update = transport.broadcasts.getLast();
+        assertEquals(MessageType.PLAYLIST_UPDATED, update.type());
+        assertEquals(load, update.loadId());
+        assertEquals("Midnight Drive", update.playlist().getFirst().title());
+    }
+
+    @Test
+    void listenerAcceptsRenamedTitleWithoutReloadAndCannotRenameItLocally() {
+        readyClient();
+        String load = audio.loadId;
+        int loads = audio.loads;
+        PlaylistTrack track = service.currentState().currentTrack();
+        service.onMessage("host", PeerMessage.playlistUpdated(
+            List.of(new PlaylistTrack(track.id(), "Night Ride", track.sourceUrl())), 0, load));
+        assertEquals("Night Ride", service.currentState().trackName());
+        assertEquals(loads, audio.loads);
+        service.renameTrack(0, "My own title");
+        assertEquals("Night Ride", service.currentState().trackName());
+    }
+
+    @Test
+    void blankTitleDoesNotChangeThePlaylist() {
+        hostWithTrack();
+        String original = service.currentState().currentTrack().title();
+        int messages = transport.broadcasts.size();
+        service.renameTrack(0, "   ");
+        assertEquals(original, service.currentState().currentTrack().title());
+        assertEquals(messages, transport.broadcasts.size());
+    }
+
+    @Test
     void listenerFailureCancelsStartAndRequiresReload() {
         hostWithTrack("friend");
         audio.ready();
@@ -420,9 +466,9 @@ final class ListeningSessionServiceTest {
         AudioPlayerListener listener;
         String loadId;
         Duration position = Duration.ZERO;
-        int plays, pauses, stops;
+        int plays, pauses, stops, loads;
         public void setListener(AudioPlayerListener listener) { this.listener = listener; }
-        public void load(URI uri, String loadId) { this.loadId = loadId; position = Duration.ZERO; }
+        public void load(URI uri, String loadId) { this.loadId = loadId; loads++; position = Duration.ZERO; }
         void ready() { listener.onReady(loadId, Duration.ofMinutes(3)); }
         public void play() { plays++; }
         public void pause() { pauses++; }

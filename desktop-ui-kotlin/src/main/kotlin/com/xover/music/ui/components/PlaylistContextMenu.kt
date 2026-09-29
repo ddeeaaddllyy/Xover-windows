@@ -111,6 +111,7 @@ internal fun PlaylistTrackContextMenu(
     onToggleLike: () -> Unit,
     onDismiss: () -> Unit,
     onSelect: () -> Unit,
+    onRename: () -> Unit = {},
     onDuplicate: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -171,6 +172,16 @@ internal fun PlaylistTrackContextMenu(
                     },
                 )
                 if (canEdit) {
+                    TrackContextMenuItem(
+                        symbol = "✎",
+                        title = "Rename",
+                        caption = "Edit the track title",
+                        tone = AccentColor,
+                        onClick = {
+                            onDismiss()
+                            onRename()
+                        },
+                    )
                     TrackContextMenuItem(
                         symbol = ">",
                         title = "Play now",
