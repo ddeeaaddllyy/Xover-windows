@@ -1,7 +1,12 @@
 package com.xover.music.ui
 
 import androidx.compose.material.Typography
-import androidx.compose.material.lightColors
+import androidx.compose.material.LocalContentColor
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.TextFieldDefaults
+import androidx.compose.material.darkColors
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -47,40 +52,59 @@ internal fun formatMillis(value: Long): String {
     return "%d:%02d".format(minutes, seconds)
 }
 
-internal fun xoverColors() = lightColors(
+internal fun xoverColors() = darkColors(
     primary = AccentColor,
     secondary = WarmColor,
     background = Color.Transparent,
     surface = SurfaceColor,
-    onPrimary = Color.White,
-    onSecondary = Color.White,
+    onPrimary = InkColor,
+    onSecondary = InkColor,
     onBackground = PrimaryText,
     onSurface = PrimaryText,
 )
 
+@Composable
+internal fun XoverTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colors = xoverColors(), typography = xoverTypography()) {
+        CompositionLocalProvider(LocalContentColor provides PrimaryText, content = content)
+    }
+}
+
+@Composable
+internal fun readableTextFieldColors() = TextFieldDefaults.outlinedTextFieldColors(
+    textColor = PrimaryText,
+    disabledTextColor = SecondaryText,
+    placeholderColor = SecondaryText,
+    disabledPlaceholderColor = SecondaryText,
+    focusedLabelColor = AccentColor,
+    unfocusedLabelColor = SecondaryText,
+    disabledLabelColor = SecondaryText,
+    cursorColor = AccentColor,
+    focusedBorderColor = AccentColor,
+    unfocusedBorderColor = BorderColor,
+    disabledBorderColor = BorderColor,
+)
+
 internal fun xoverTypography() = Typography(
-    defaultFontFamily = XoverFontFamily,
-    h1 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Bold, fontSize = 96.sp),
-    h2 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Bold, fontSize = 60.sp),
-    h3 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Bold, fontSize = 48.sp),
-    h4 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Bold, fontSize = 34.sp),
-    h5 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Bold, fontSize = 24.sp),
-    h6 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Bold, fontSize = 20.sp),
-    subtitle1 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Medium, fontSize = 16.sp),
-    subtitle2 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Medium, fontSize = 14.sp),
-    body1 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Normal, fontSize = 16.sp),
-    body2 = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Normal, fontSize = 14.sp),
-    button = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.SemiBold, fontSize = 14.sp),
-    caption = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Normal, fontSize = 12.sp),
-    overline = TextStyle(fontFamily = XoverFontFamily, fontWeight = FontWeight.Medium, fontSize = 10.sp),
+    defaultFontFamily = FontFamily.SansSerif,
+    h4 = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Light, fontSize = 32.sp, letterSpacing = (-1).sp),
+    h5 = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, letterSpacing = (-0.5).sp),
+    h6 = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 20.sp),
+    subtitle1 = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 15.sp),
+    subtitle2 = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 13.sp),
+    body1 = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp, lineHeight = 21.sp),
+    body2 = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 12.sp, lineHeight = 18.sp),
+    button = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 13.sp),
+    caption = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 11.sp, lineHeight = 16.sp),
+    overline = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.sp, letterSpacing = 1.4.sp),
 )
 
 internal enum class XoverTab(val title: String) {
-    SETUP("Setup"),
-    PLAYER("Player"),
-    LIKED("Liked"),
-    STATUS("Status"),
-    MORE("More"),
+    SETUP("Session"),
+    PLAYER("Deck"),
+    LIKED("Library"),
+    STATUS("Signal"),
+    MORE("Settings"),
 }
 
 internal enum class SetupRole(val title: String) {
@@ -98,14 +122,15 @@ internal val ErrorTimestampFormatter = DateTimeFormatter
     .ofPattern("yyyy-MM-dd HH:mm:ss z")
     .withZone(ZoneId.systemDefault())
 
-internal val SurfaceColor = Color(0xFFFFFFFF)
-internal val SoftLayerColor = Color(0xFFF2F5F4)
-internal val BorderColor = Color(0xFFDDE4E1)
-internal val PrimaryText = Color(0xFF18201D)
-internal val SecondaryText = Color(0xFF6E7A75)
-internal val AccentColor = Color(0xFF45A996)
-internal val WarmColor = Color(0xFFE1AA45)
-internal val DangerColor = Color(0xFFD55D63)
-internal val ControlGreen = Color(0xFF42C66B)
-internal val ControlYellow = Color(0xFFE8B84F)
-internal val ControlRed = Color(0xFFE85C5C)
+internal val SurfaceColor = Color(0xFF171A1C)
+internal val SoftLayerColor = Color(0xFF222629)
+internal val BorderColor = Color(0xFF343A3D)
+internal val PrimaryText = Color(0xFFF0ECE3)
+internal val SecondaryText = Color(0xFFBDC4C5)
+internal val AccentColor = Color(0xFFE3B778)
+internal val WarmColor = Color(0xFFE3B778)
+internal val DangerColor = Color(0xFFE08B87)
+internal val InkColor = Color(0xFF181B1D)
+internal val ControlGreen = Color(0xFF9FB8A0)
+internal val ControlYellow = AccentColor
+internal val ControlRed = DangerColor

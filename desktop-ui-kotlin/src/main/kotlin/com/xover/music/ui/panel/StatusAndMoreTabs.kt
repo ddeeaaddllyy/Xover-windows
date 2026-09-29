@@ -17,6 +17,7 @@ internal fun StatusTab(
     state: SessionViewState,
     onDisconnectPeer: (String) -> Unit,
 ) {
+    ScreenIntro("On the same wavelength.", "The connection behind the listening room.")
     Section("Session state") {
         StatusRow("Role", state.role().name)
         StatusRow("Network", state.connectionStatus().name)
@@ -56,6 +57,7 @@ internal fun MoreTab(
     onCollapse: () -> Unit,
     onMinimize: () -> Unit,
 ) {
+    ScreenIntro("Make yourself at home.", "A few quiet adjustments to your space.")
     Section("Session") {
         StatusRow("Connection", state.connectionStatus().name)
         SoftButton(

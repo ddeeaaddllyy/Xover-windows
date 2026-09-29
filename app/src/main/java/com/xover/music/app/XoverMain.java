@@ -16,7 +16,8 @@ public final class XoverMain {
         new DesktopApplication(
             component.listeningSessionService(),
             component.errorEventSource(),
-            errorReporter
+            errorReporter,
+            component.likedTracksService()
         ).start();
     }
 }

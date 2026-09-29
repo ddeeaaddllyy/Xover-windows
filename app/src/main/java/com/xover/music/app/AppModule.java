@@ -11,6 +11,9 @@ import com.xover.music.application.session.ListeningSessionService;
 import com.xover.music.application.sync.ClockSynchronizer;
 import com.xover.music.audio.JavaFxAudioPlayer;
 import com.xover.music.infrastructure.KtorPeerTransport;
+import com.xover.music.infrastructure.SqliteLikedTrackRepository;
+import com.xover.music.application.library.LikedTracksService;
+import java.nio.file.Path;
 import dagger.Module;
 import dagger.Provides;
 
@@ -20,6 +23,14 @@ import java.util.concurrent.ScheduledExecutorService;
 
 @Module
 public final class AppModule {
+    @Provides
+    @Singleton
+    LikedTracksService provideLikedTracksService() {
+        return new LikedTracksService(new SqliteLikedTrackRepository(
+            Path.of(System.getProperty("user.home"), ".xover", "liked-tracks.db")
+        ));
+    }
+
     @Provides
     @Singleton
     Clock provideClock() {

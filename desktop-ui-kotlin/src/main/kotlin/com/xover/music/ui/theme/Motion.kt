@@ -1,10 +1,7 @@
 package com.xover.music.ui
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 
-/** Springs keep velocity when a hover, press, or tab transition is interrupted. */
-internal fun <T> gentleMotion() = spring<T>(
-    dampingRatio = Spring.DampingRatioNoBouncy,
-    stiffness = Spring.StiffnessMediumLow,
-)
+/** Short, bounded transitions; controls settle without wobbling or changing layout. */
+internal fun <T> gentleMotion() = tween<T>(durationMillis = 190, easing = FastOutSlowInEasing)

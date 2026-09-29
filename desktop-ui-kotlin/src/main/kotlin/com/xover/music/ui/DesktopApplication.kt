@@ -3,7 +3,6 @@ package com.xover.music.ui
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.DpSize
@@ -119,10 +118,8 @@ class DesktopApplication(
                 windowState.isMinimized = true
             }
 
-            MaterialTheme(
-                colors = xoverColors(),
-                typography = xoverTypography(),
-            ) {
+            val dockedEdges = rememberWindowDocking(window, collapsed)
+            XoverTheme {
                 PanelTransition(
                     progress = collapseProgress,
                     compact = {
@@ -142,6 +139,7 @@ class DesktopApplication(
                             },
                             onNext = { perform("Next track") { sessionService.nextTrack() } },
                             onStop = { perform("Stop playback") { sessionService.stopPlayback() } },
+                            dockedEdges = dockedEdges,
                             onMute = {
                                 val restoreVolume = audibleVolume
                                 perform("Toggle local mute") {

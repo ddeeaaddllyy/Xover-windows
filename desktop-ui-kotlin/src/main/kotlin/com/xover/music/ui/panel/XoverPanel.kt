@@ -1,6 +1,8 @@
 package com.xover.music.ui
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -12,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -150,6 +153,16 @@ internal fun XoverPanel(
                 }
             }
         }
+        Row(Modifier.fillMaxWidth().padding(top = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                StatusDot(state.connectionStatus())
+                Text(statusTitle(state), color = SecondaryText, style = androidx.compose.material.MaterialTheme.typography.caption)
+            }
+            Text("${state.connectedPeerIds().size} listeners", color = SecondaryText,
+                style = androidx.compose.material.MaterialTheme.typography.caption)
+        }
     }
 }
 
@@ -164,22 +177,33 @@ internal fun CollapsedRail(
     onNext: () -> Unit,
     onStop: () -> Unit,
     onMute: () -> Unit,
+    dockedEdges: DockedEdges = DockedEdges(),
 ) {
     val host = state.role() == DeviceRole.HOST
     val hasTrack = state.currentTrack() != null
     val playing = state.playbackStatus() in setOf(PlaybackStatus.PLAYING, PlaybackStatus.WAITING)
+    val leftInset by animateDpAsState(if (dockedEdges.left) 0.dp else 8.dp, gentleMotion(), label = "dockLeftInset")
+    val topInset by animateDpAsState(if (dockedEdges.top) 0.dp else 8.dp, gentleMotion(), label = "dockTopInset")
+    val rightInset by animateDpAsState(if (dockedEdges.right) 0.dp else 8.dp, gentleMotion(), label = "dockRightInset")
+    val bottomInset by animateDpAsState(if (dockedEdges.bottom) 0.dp else 8.dp, gentleMotion(), label = "dockBottomInset")
+    val topLeft by animateDpAsState(if (dockedEdges.left || dockedEdges.top) 0.dp else 16.dp, gentleMotion(), label = "dockTopLeft")
+    val topRight by animateDpAsState(if (dockedEdges.right || dockedEdges.top) 0.dp else 16.dp, gentleMotion(), label = "dockTopRight")
+    val bottomLeft by animateDpAsState(if (dockedEdges.left || dockedEdges.bottom) 0.dp else 16.dp, gentleMotion(), label = "dockBottomLeft")
+    val bottomRight by animateDpAsState(if (dockedEdges.right || dockedEdges.bottom) 0.dp else 16.dp, gentleMotion(), label = "dockBottomRight")
+    val border by animateColorAsState(if (dockedEdges.attached) Color.Transparent else BorderColor, gentleMotion(), label = "dockBorder")
+    val shape = RoundedCornerShape(topStart = topLeft, topEnd = topRight, bottomStart = bottomLeft, bottomEnd = bottomRight)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(8.dp),
+            .padding(start = leftInset, top = topInset, end = rightInset, bottom = bottomInset),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(24.dp))
+                .clip(shape)
                 .background(SurfaceColor.copy(alpha = opacity))
-                .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(24.dp))
+                .border(BorderStroke(1.dp, border), shape)
                 .padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -189,20 +213,20 @@ internal fun CollapsedRail(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StatusDot(state.connectionStatus())
+                RecordArtwork(state.playbackStatus() == PlaybackStatus.PLAYING, Modifier.size(26.dp))
                 Text(
                     state.trackName().ifBlank { "Xover" },
                     color = PrimaryText,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).windowDrag(awtWindow),
+                    modifier = Modifier.weight(1f).windowDrag(awtWindow, dockToEdges = true),
                 )
                 WindowControlButton(">", ControlGreen, onExpand)
                 WindowControlButton("-", ControlYellow, onMinimize)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                SoftButton(
+                PrimaryButton(
                     if (playing) "Pause" else "Play", onPlayPause,
                     modifier = Modifier.weight(1f),
                     enabled = host && hasTrack && state.playbackStatus() != PlaybackStatus.ERROR,

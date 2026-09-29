@@ -39,7 +39,9 @@ internal fun SetupTab(
     val blockedByClient = state.role() == DeviceRole.CLIENT && !hostActive
     val blockedByHost = state.role() == DeviceRole.HOST && !clientActive
 
-    Section("Mode") {
+    ScreenIntro("Good music. Same moment.", "A private room for you and your people.")
+
+    Section("01 / Choose your side") {
         SegmentedRole(selectedRole = selectedRole, onRoleSelected = onRoleSelected)
     }
 
@@ -50,7 +52,7 @@ internal fun SetupTab(
     ) { role ->
         if (role == SetupRole.HOST) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Section("Host network") {
+                Section("02 / Open a room") {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
                             value = advertisedHost,
@@ -59,6 +61,7 @@ internal fun SetupTab(
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             enabled = !hostActive && !blockedByClient,
+                            colors = readableTextFieldColors(),
                         )
                         OutlinedTextField(
                             value = port,
@@ -67,6 +70,7 @@ internal fun SetupTab(
                             modifier = Modifier.width(104.dp),
                             singleLine = true,
                             enabled = !hostActive && !blockedByClient,
+                            colors = readableTextFieldColors(),
                         )
                     }
                     AddressPreview("Friend connects to", advertisedHost, port)
@@ -83,7 +87,7 @@ internal fun SetupTab(
                 }
             }
         } else {
-            Section("Join host") {
+            Section("02 / Find your room") {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = connectHost,
@@ -92,6 +96,7 @@ internal fun SetupTab(
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         enabled = !clientActive && !blockedByHost,
+                        colors = readableTextFieldColors(),
                     )
                     OutlinedTextField(
                         value = port,
@@ -100,6 +105,7 @@ internal fun SetupTab(
                         modifier = Modifier.width(104.dp),
                         singleLine = true,
                         enabled = !clientActive && !blockedByHost,
+                        colors = readableTextFieldColors(),
                     )
                 }
                 AddressPreview("Opening", connectHost, port)
@@ -131,14 +137,15 @@ internal fun SegmentedRole(
         SetupRole.entries.forEach { role ->
             val selected = role == selectedRole
             val background by animateColorAsState(if (selected) AccentColor else Color.Transparent, label = "roleBackground")
-            val foreground by animateColorAsState(if (selected) Color.White else SecondaryText, label = "roleForeground")
+            val foreground by animateColorAsState(if (selected) InkColor else SecondaryText, label = "roleForeground")
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(42.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(background)
-                    .clickable { onRoleSelected(role) },
+                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null) { onRoleSelected(role) },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(role.title, color = foreground, fontWeight = FontWeight.SemiBold)

@@ -46,9 +46,9 @@ internal fun FloatingSurface(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(28.dp))
+                .clip(RoundedCornerShape(20.dp))
                 .background(SurfaceColor.copy(alpha = opacity))
-                .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(28.dp))
+                .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(20.dp))
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             content = content,
@@ -65,19 +65,27 @@ internal fun Section(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(SurfaceColor.copy(alpha = 0.72f))
-            .border(BorderStroke(1.dp, BorderColor.copy(alpha = 0.78f)), RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(SoftLayerColor.copy(alpha = 0.38f))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = title,
-            color = SecondaryText,
+            text = title.uppercase(),
+            color = AccentColor,
             fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.caption,
+            style = MaterialTheme.typography.overline,
         )
         content()
+    }
+}
+
+@Composable
+internal fun ScreenIntro(title: String, description: String) {
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(title, color = PrimaryText, style = MaterialTheme.typography.h4)
+        Text(description, color = SecondaryText, style = MaterialTheme.typography.body2)
     }
 }
 
@@ -115,7 +123,7 @@ internal fun CompactUrlField(
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val focused by interactionSource.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(8.dp)
     val background by animateColorAsState(
         targetValue = when {
             !enabled -> SoftLayerColor.copy(alpha = 0.46f)
@@ -164,7 +172,7 @@ internal fun CompactUrlField(
                 if (value.isBlank()) {
                     Text(
                         text = placeholder,
-                        color = SecondaryText.copy(alpha = if (enabled) 0.82f else 0.5f),
+                        color = SecondaryText,
                         style = MaterialTheme.typography.body2,
                         maxLines = 1,
                     )
@@ -190,9 +198,9 @@ internal fun PrimaryButton(
         backgroundColor = AccentColor,
         hoverBackgroundColor = AccentColor.copy(alpha = 0.92f),
         pressedBackgroundColor = AccentColor.copy(alpha = 0.86f),
-        disabledBackgroundColor = AccentColor.copy(alpha = 0.32f),
-        contentColor = Color.White,
-        disabledContentColor = Color.White.copy(alpha = 0.72f),
+        disabledBackgroundColor = SoftLayerColor,
+        contentColor = InkColor,
+        disabledContentColor = SecondaryText,
         fontWeight = FontWeight.SemiBold,
     )
 }
@@ -209,10 +217,10 @@ internal fun SoftButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
-        backgroundColor = Color.White.copy(alpha = 0.72f),
-        hoverBackgroundColor = Color.White.copy(alpha = 0.92f),
-        pressedBackgroundColor = Color.White.copy(alpha = 0.84f),
-        disabledBackgroundColor = Color.White.copy(alpha = 0.42f),
+        backgroundColor = SoftLayerColor,
+        hoverBackgroundColor = BorderColor,
+        pressedBackgroundColor = BorderColor.copy(alpha = 0.7f),
+        disabledBackgroundColor = SoftLayerColor.copy(alpha = 0.45f),
         contentColor = PrimaryText,
         disabledContentColor = SecondaryText,
         borderColor = BorderColor,
@@ -237,17 +245,7 @@ internal fun MotionButton(
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val pressed by interactionSource.collectIsPressedAsState()
-    val buttonShape = RoundedCornerShape(14.dp)
-    val offsetY by animateDpAsState(
-        targetValue = when {
-            !enabled -> 0.dp
-            pressed -> 1.dp
-            hovered -> (-2).dp
-            else -> 0.dp
-        },
-        animationSpec = gentleMotion(),
-        label = "motionButtonOffset",
-    )
+    val buttonShape = RoundedCornerShape(8.dp)
     val scale by animateFloatAsState(
         targetValue = if (enabled && pressed) 0.985f else 1f,
         animationSpec = gentleMotion(),
@@ -284,7 +282,6 @@ internal fun MotionButton(
     Box(
         modifier = modifier
             .height(44.dp)
-            .offset(y = offsetY)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -307,7 +304,7 @@ internal fun MotionButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = foreground, fontWeight = fontWeight)
+        Text(text, color = foreground, fontWeight = fontWeight, style = MaterialTheme.typography.button)
     }
 }
 
@@ -321,26 +318,17 @@ internal fun WindowControlButton(
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
     val background by animateColorAsState(
-        targetValue = if (hovered) color else color.copy(alpha = 0.82f),
+        targetValue = if (hovered) color.copy(alpha = 0.18f) else Color.Transparent,
         animationSpec = gentleMotion(),
         label = "windowControlBackground",
-    )
-    val scale by animateFloatAsState(
-        targetValue = if (hovered) 1.08f else 1f,
-        animationSpec = gentleMotion(),
-        label = "windowControlScale",
     )
 
     Box(
         modifier = modifier
             .size(22.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
             .clip(CircleShape)
             .background(background)
-            .border(BorderStroke(1.dp, color.copy(alpha = 0.35f)), CircleShape)
+            .border(BorderStroke(1.dp, BorderColor.copy(alpha = 0.6f)), CircleShape)
             .hoverable(interactionSource)
             .clickable(
                 interactionSource = interactionSource,
@@ -357,7 +345,7 @@ internal fun WindowControlButton(
 private fun WindowControlGlyph(symbol: String) {
     Canvas(modifier = Modifier.size(7.dp)) {
         val strokeWidth = 1.3.dp.toPx()
-        val strokeColor = Color.White
+        val strokeColor = PrimaryText
         val left = size.width * 0.2f
         val right = size.width * 0.8f
         val top = size.height * 0.2f
@@ -428,7 +416,7 @@ private fun WindowControlGlyph(symbol: String) {
     }
 }
 
-internal fun Modifier.windowDrag(window: AwtWindow): Modifier = pointerInput(window) {
+internal fun Modifier.windowDrag(window: AwtWindow, dockToEdges: Boolean = false): Modifier = pointerInput(window, dockToEdges) {
     var startMouse = Point()
     var startWindow = Point()
 
@@ -443,6 +431,12 @@ internal fun Modifier.windowDrag(window: AwtWindow): Modifier = pointerInput(win
                 startWindow.x + currentMouse.x - startMouse.x,
                 startWindow.y + currentMouse.y - startMouse.y,
             )
+        },
+        onDragEnd = {
+            if (dockToEdges) {
+                val snapped = snapToScreenEdges(window.bounds, windowWorkArea(window))
+                window.setLocation(snapped.x, snapped.y)
+            }
         },
     )
 }

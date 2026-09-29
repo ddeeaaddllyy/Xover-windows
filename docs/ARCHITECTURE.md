@@ -124,8 +124,6 @@ UI session commands run on one background dispatcher, keeping server startup and
 off the event thread. Non-secret UI preferences use an atomic properties file in the user
 profile; debounced background writes and a final close flush preserve edits.
 
-## Extension Rules
-
 ## Local Liked Tracks
 
 `LikedTracksService` in the application layer validates saved URLs and uses the
