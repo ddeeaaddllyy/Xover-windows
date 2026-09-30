@@ -45,9 +45,13 @@ internal fun SetupTab(
         SegmentedRole(selectedRole = selectedRole, onRoleSelected = onRoleSelected)
     }
 
-    Crossfade(
+    AnimatedContent(
         targetState = selectedRole,
-        animationSpec = tween(180),
+        transitionSpec = {
+            val direction = if (targetState == SetupRole.CLIENT) 1 else -1
+            (fadeIn(tween(180)) + slideInHorizontally(tween(240)) { direction * it / 8 }) togetherWith
+                fadeOut(tween(0))
+        },
         label = "setupRole",
     ) { role ->
         if (role == SetupRole.HOST) {

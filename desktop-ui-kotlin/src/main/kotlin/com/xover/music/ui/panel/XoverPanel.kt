@@ -1,13 +1,11 @@
 package com.xover.music.ui
 
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -62,11 +60,7 @@ internal fun XoverPanel(
     onRetryLikes: () -> Unit = {},
     onToggleLike: (String, String) -> Unit = { _, _ -> },
 ) {
-    val animatedOpacity by animateFloatAsState(
-        settings.opacity, animationSpec = gentleMotion(), label = "panelOpacity",
-    )
-
-    FloatingSurface(opacity = animatedOpacity) {
+    FloatingSurface(opacity = 1f) {
         TopBar(
             state = state,
             awtWindow = awtWindow,
@@ -87,7 +81,7 @@ internal fun XoverPanel(
             transitionSpec = {
                 val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
                 (fadeIn(tween(260)) + slideInHorizontally(tween(320)) { direction * it / 4 }) togetherWith
-                    (fadeOut(tween(180)) + slideOutHorizontally(tween(280)) { -direction * it / 4 })
+                    fadeOut(tween(0))
             },
             label = "tabContent",
             modifier = Modifier.fillMaxWidth().weight(1f),
@@ -213,7 +207,7 @@ internal fun CollapsedRail(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(shape)
-                .background(opaquePanelColor(opacity))
+                .background(SurfaceColor.copy(alpha = opacity))
                 .border(BorderStroke(1.dp, border), shape)
                 .padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,

@@ -89,6 +89,11 @@ class DesktopApplication(
             animationSpec = tween(320, easing = FastOutSlowInEasing),
             label = "windowCollapse",
         )
+        val windowOpacity by animateFloatAsState(
+            targetValue = settings.opacity,
+            animationSpec = gentleMotion(),
+            label = "windowOpacity",
+        )
 
         LaunchedEffect(collapseProgress) {
             windowState.size = DpSize(
@@ -107,6 +112,7 @@ class DesktopApplication(
             alwaysOnTop = settings.pinned,
             icon = appIcon,
         ) {
+            LaunchedEffect(windowOpacity) { window.opacity = windowOpacity }
             val focusManager = LocalFocusManager.current
             LaunchedEffect(collapsed) { focusManager.clearFocus(force = true) }
             val state = rememberSessionState(sessionService)
@@ -125,7 +131,7 @@ class DesktopApplication(
                     compact = {
                         CollapsedRail(
                             state = state.value,
-                            opacity = settings.opacity,
+                            opacity = 1f,
                             awtWindow = window,
                             onExpand = { collapsed = false },
                             onMinimize = minimizeWindow,

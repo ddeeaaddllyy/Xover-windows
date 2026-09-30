@@ -68,8 +68,9 @@ It also supplies the HTTP metadata adapter used to read titles from supported tr
 ### `desktop-ui-kotlin`
 
 Compose Desktop UI. It observes `SessionViewState` and forwards user actions to `ListeningSessionService`.
-The saved panel visibility value shades an opaque surface rather than making the window
-content translucent, so other windows never show through the panel.
+The saved panel opacity controls the native window's transparency. The expanded and
+compact surfaces stay opaque within the window, so controls from an inactive view do
+not show through, while windows behind Xover remain visible.
 
 The expanded panel and compact player remain composed across collapse/expand transitions.
 Each is measured at its own fixed size while a single animation drives window size and
