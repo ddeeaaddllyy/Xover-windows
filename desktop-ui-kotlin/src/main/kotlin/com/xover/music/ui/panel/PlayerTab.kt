@@ -1,6 +1,13 @@
 package com.xover.music.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -13,6 +20,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Slider
@@ -22,9 +30,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -42,8 +58,12 @@ import kotlin.math.roundToInt
 @Composable
 internal fun PlayerTab(
     state: SessionViewState,
+    likedUrls: Set<String>,
+    likesEnabled: Boolean,
+    onToggleLike: (String, String) -> Unit,
     onAddTrackUrl: (String) -> Unit,
     onSelectTrack: (Int) -> Unit,
+    onRenameTrack: (Int, String) -> Unit = { _, _ -> },
     onRemoveTrack: (Int) -> Unit,
     onMoveTrack: (Int, Int) -> Unit,
     onPlay: () -> Unit,
@@ -66,103 +86,103 @@ internal fun PlayerTab(
         volumePosition = state.localVolumePercent().toFloat()
     }
 
-    Section("Tracks") {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    val playing = state.playbackStatus() in setOf(PlaybackStatus.PLAYING, PlaybackStatus.WAITING)
+    Column(
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+            .background(SoftLayerColor.copy(alpha = 0.55f)).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("ON THE DECK", style = MaterialTheme.typography.overline, color = AccentColor)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                PulseEqualizer(playing, Modifier.size(width = 19.dp, height = 14.dp))
+                Text(state.playbackStatus().name, style = MaterialTheme.typography.overline, color = SecondaryText)
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            RecordArtwork(playing = state.playbackStatus() == PlaybackStatus.PLAYING, modifier = Modifier.size(100.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AnimatedContent(
+                    targetState = state.trackName().ifBlank { "Room for a\ngood record." },
+                    transitionSpec = {
+                        (fadeIn(tween(260)) + slideInVertically(tween(260)) { it / 3 }) togetherWith
+                            (fadeOut(tween(150)) + slideOutVertically(tween(210)) { -it / 3 })
+                    }, label = "trackTitle",
+                ) { title ->
+                    Text(title, style = MaterialTheme.typography.h6, color = PrimaryText,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                Text(if (state.currentTrack() == null) "Add a link to begin listening." else
+                    "TRACK ${(state.currentTrackIndex() + 1).toString().padStart(2, '0')} / ${state.playlist().size.toString().padStart(2, '0')}",
+                    style = MaterialTheme.typography.caption, color = SecondaryText)
+            }
+            state.currentTrack()?.let { track ->
+                LikeButton(track.sourceUrl() in likedUrls, likesEnabled) { onToggleLike(track.sourceUrl(), track.title()) }
+            }
+        }
+        Column {
+            Slider(
+                value = sliderPosition,
+                onValueChange = { seeking = true; sliderPosition = it },
+                onValueChangeFinished = { onSeek(sliderPosition.toLong()); seeking = false },
+                valueRange = 0f..duration.toFloat(),
+                enabled = state.role() == DeviceRole.HOST && state.durationMillis() > 0L,
+                modifier = Modifier.fillMaxWidth().height(26.dp),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(formatMillis(state.positionMillis()), color = PrimaryText, style = MaterialTheme.typography.overline)
+                Text(formatMillis(state.durationMillis()), color = SecondaryText, style = MaterialTheme.typography.overline)
+            }
+        }
+        PrimaryButton(
+            text = when { state.playbackStatus() == PlaybackStatus.WAITING -> "Cancel scheduled start"
+                playing -> "Pause playback"; else -> "Play record" },
+            onClick = if (playing) onPause else onPlay,
+            enabled = state.role() == DeviceRole.HOST && state.currentTrack() != null && state.playbackStatus() != PlaybackStatus.ERROR,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            CompactUrlField(
-                value = trackUrl,
-                onValueChange = { trackUrl = it },
-                placeholder = "Audio URL..",
-                modifier = Modifier.weight(1f),
-                enabled = canEditPlaylist,
-            )
-            PrimaryButton(
-                text = "Add",
-                onClick = {
-                    val nextUrl = trackUrl.trim()
-                    if (nextUrl.isNotBlank()) {
-                        onAddTrackUrl(nextUrl)
-                        trackUrl = ""
-                    }
-                },
-                enabled = canEditPlaylist && trackUrl.isNotBlank(),
-                modifier = Modifier.width(86.dp),
-            )
+        )
+        Text(state.message(), color = SecondaryText, style = MaterialTheme.typography.caption,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("OUTPUT", color = SecondaryText, style = MaterialTheme.typography.overline)
+        Slider(value = volumePosition, onValueChange = {
+            volumePosition = it
+            onLocalVolumeChange(it.toInt())
+        }, valueRange = 0f..100f, modifier = Modifier.weight(1f).height(24.dp))
+        Text("${state.localVolumePercent()}%", color = PrimaryText, style = MaterialTheme.typography.overline,
+            modifier = Modifier.width(38.dp))
+    }
+    Section("QUEUE / ${state.playlist().size.toString().padStart(2, '0')}") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            CompactUrlField(trackUrl, { trackUrl = it }, "Paste a track link", Modifier.weight(1f), canEditPlaylist)
+            SoftButton("Add", {
+                val next = trackUrl.trim()
+                if (next.isNotBlank()) { onAddTrackUrl(next); trackUrl = "" }
+            }, Modifier.width(56.dp), enabled = canEditPlaylist && trackUrl.isNotBlank())
         }
         PlaylistEditor(
-            tracks = state.playlist(),
-            currentTrackIndex = state.currentTrackIndex(),
-            canEdit = canEditPlaylist,
-            onSelectTrack = onSelectTrack,
-            onRemoveTrack = onRemoveTrack,
-            onMoveTrack = onMoveTrack,
-            onAddTrackUrl = onAddTrackUrl,
+            tracks = state.playlist(), likedUrls = likedUrls, likesEnabled = likesEnabled,
+            onToggleLike = onToggleLike, currentTrackIndex = state.currentTrackIndex(), canEdit = canEditPlaylist,
+            onSelectTrack = onSelectTrack, onRemoveTrack = onRemoveTrack, onMoveTrack = onMoveTrack, onAddTrackUrl = onAddTrackUrl,
+            onRenameTrack = onRenameTrack,
         )
     }
 
-    Section("Now playing") {
-        Text(
-            text = state.trackName().ifBlank { "No track loaded" },
-            fontWeight = FontWeight.SemiBold,
-            color = PrimaryText,
-        )
-        Text(
-            text = "${formatMillis(state.positionMillis())} / ${
-                formatMillis(
-                    state.durationMillis()
-                )
-            }",
-            color = SecondaryText,
-            style = MaterialTheme.typography.caption,
-        )
-        Slider(
-            value = sliderPosition,
-            onValueChange = { seeking = true; sliderPosition = it },
-            onValueChangeFinished = { onSeek(sliderPosition.toLong()); seeking = false },
-            valueRange = 0f..duration.toFloat(),
-            enabled = state.role() == DeviceRole.HOST && state.durationMillis() > 0L,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            PrimaryButton(
-                text = if (state.playbackStatus() == PlaybackStatus.WAITING) "Waiting..." else "Play",
-                onClick = onPlay,
-                enabled = state.role() == DeviceRole.HOST && state.currentTrack() != null
-                    && state.playbackStatus() !in setOf(PlaybackStatus.ERROR, PlaybackStatus.PLAYING, PlaybackStatus.WAITING),
-                modifier = Modifier.weight(1f),
-            )
-            SoftButton(
-                text = "Pause",
-                onClick = onPause,
-                enabled = state.role() == DeviceRole.HOST
-                    && state.playbackStatus() in setOf(PlaybackStatus.PLAYING, PlaybackStatus.WAITING),
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Text(state.message(), color = SecondaryText, style = MaterialTheme.typography.caption)
-    }
-
-    Section("Local volume") {
-        StatusRow("Only this device", "${state.localVolumePercent()}%")
-        Slider(
-            value = volumePosition,
-            onValueChange = {
-                volumePosition = it
-                onLocalVolumeChange(it.toInt())
-            },
-            valueRange = 0f..100f,
-        )
-    }
 }
 
 @Composable
 internal fun PlaylistEditor(
     tracks: List<PlaylistTrack>,
+    likedUrls: Set<String>,
+    likesEnabled: Boolean,
+    onToggleLike: (String, String) -> Unit,
     currentTrackIndex: Int,
     canEdit: Boolean,
     onSelectTrack: (Int) -> Unit,
+    onRenameTrack: (Int, String) -> Unit = { _, _ -> },
     onRemoveTrack: (Int) -> Unit,
     onMoveTrack: (Int, Int) -> Unit,
     onAddTrackUrl: (String) -> Unit,
@@ -177,11 +197,15 @@ internal fun PlaylistEditor(
             key(track.id()) {
                 PlaylistTrackRow(
                     track = track,
+                    liked = track.sourceUrl() in likedUrls,
+                    likesEnabled = likesEnabled,
+                    onToggleLike = { onToggleLike(track.sourceUrl(), track.title()) },
                     index = index,
                     totalTracks = tracks.size,
                     selected = index == currentTrackIndex,
                     canEdit = canEdit,
                     onSelect = { onSelectTrack(index) },
+                    onRename = { title -> onRenameTrack(index, title) },
                     onDuplicate = { onAddTrackUrl(track.sourceUrl()) },
                     onRemove = { onRemoveTrack(index) },
                     onMove = { targetIndex -> onMoveTrack(index, targetIndex) },
@@ -194,11 +218,15 @@ internal fun PlaylistEditor(
 @Composable
 internal fun PlaylistTrackRow(
     track: PlaylistTrack,
+    liked: Boolean,
+    likesEnabled: Boolean,
+    onToggleLike: () -> Unit,
     index: Int,
     totalTracks: Int,
     selected: Boolean,
     canEdit: Boolean,
     onSelect: () -> Unit,
+    onRename: (String) -> Unit = {},
     onDuplicate: () -> Unit,
     onRemove: () -> Unit,
     onMove: (Int) -> Unit,
@@ -212,6 +240,24 @@ internal fun PlaylistTrackRow(
     var swiping by remember(track.id()) { mutableStateOf(false) }
     var clickPulse by remember(track.id()) { mutableStateOf(false) }
     var contextMenuOffset by remember(track.id()) { mutableStateOf<IntOffset?>(null) }
+    var editing by remember(track.id()) { mutableStateOf(false) }
+    var draftTitle by remember(track.id()) { mutableStateOf(track.title()) }
+    val renameFocus = remember(track.id()) { FocusRequester() }
+    LaunchedEffect(editing) {
+        if (editing) renameFocus.requestFocus()
+    }
+    fun beginRename() {
+        draftTitle = track.title()
+        contextMenuOffset = null
+        editing = true
+    }
+    fun saveRename() {
+        val title = draftTitle.trim()
+        if (title.isNotEmpty() && title.length <= 160) {
+            editing = false
+            onRename(title)
+        }
+    }
     val rowInteractionSource = remember { MutableInteractionSource() }
     val rowHovered by rowInteractionSource.collectIsHoveredAsState()
     val rowPressed by rowInteractionSource.collectIsPressedAsState()
@@ -238,7 +284,7 @@ internal fun PlaylistTrackRow(
             clickPulse -> AccentColor.copy(alpha = 0.13f)
             selected -> AccentColor.copy(alpha = 0.08f)
             rowHovered && canEdit -> SoftLayerColor.copy(alpha = 0.88f)
-            else -> Color.White.copy(alpha = 0.86f)
+            else -> SurfaceColor.copy(alpha = 0.6f)
         },
         animationSpec = gentleMotion(),
         label = "playlistRowBackground",
@@ -251,7 +297,7 @@ internal fun PlaylistTrackRow(
     val rowScale by animateFloatAsState(
         targetValue = when {
             dragging -> 1.012f
-            clickPulse -> 1.018f
+            clickPulse -> 1f
             rowPressed -> 0.992f
             else -> 1f
         },
@@ -276,7 +322,7 @@ internal fun PlaylistTrackRow(
                 .graphicsLayer {
                     alpha = deleteRevealAlpha
                 }
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(DangerColor.copy(alpha = 0.14f))
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.CenterEnd,
@@ -293,10 +339,10 @@ internal fun PlaylistTrackRow(
                     scaleX = rowScale
                     scaleY = rowScale
                 }
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(8.dp))
                 .background(rowBackground)
-                .border(BorderStroke(1.dp, border), RoundedCornerShape(12.dp))
-                .playlistContextMenuTrigger(canEdit) { position ->
+                .border(BorderStroke(1.dp, border), RoundedCornerShape(8.dp))
+                .playlistContextMenuTrigger(true) { position ->
                     swipeOffsetX = 0f
                     contextMenuOffset = IntOffset(
                         x = position.x.roundToInt() + 8,
@@ -333,7 +379,7 @@ internal fun PlaylistTrackRow(
                 }
                 .hoverable(rowInteractionSource, enabled = canEdit)
                 .clickable(
-                    enabled = canEdit,
+                    enabled = canEdit && !editing,
                     indication = null,
                     interactionSource = rowInteractionSource,
                     onClick = {
@@ -353,13 +399,35 @@ internal fun PlaylistTrackRow(
                 style = MaterialTheme.typography.caption,
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = track.title(),
-                    color = PrimaryText,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (editing) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        BasicTextField(
+                            value = draftTitle,
+                            onValueChange = { draftTitle = it.take(160) },
+                            modifier = Modifier.weight(1f).focusRequester(renameFocus).onPreviewKeyEvent {
+                                if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (it.key) {
+                                    Key.Enter -> { saveRename(); true }
+                                    Key.Escape -> { editing = false; true }
+                                    else -> false
+                                }
+                            },
+                            singleLine = true,
+                            cursorBrush = SolidColor(AccentColor),
+                            textStyle = MaterialTheme.typography.body1.copy(color = PrimaryText),
+                        )
+                        Text("✓", color = AccentColor, modifier = Modifier.clickable { saveRename() })
+                        Text("×", color = SecondaryText, modifier = Modifier.clickable { editing = false })
+                    }
+                } else {
+                    Text(
+                        text = track.title(),
+                        color = PrimaryText,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     text = track.sourceUrl(),
                     color = SecondaryText,
@@ -368,7 +436,9 @@ internal fun PlaylistTrackRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            LikeButton(liked, likesEnabled, onToggleLike)
             if (canEdit) {
+                Text("✎", color = AccentColor, modifier = Modifier.clickable { beginRename() })
                 Text(
                     text = "::",
                     color = SecondaryText,
@@ -405,11 +475,16 @@ internal fun PlaylistTrackRow(
         contextMenuOffset?.let { menuOffset ->
             PlaylistTrackContextMenu(
                 offset = menuOffset,
+                canEdit = canEdit,
+                liked = liked,
+                likesEnabled = likesEnabled,
+                onToggleLike = onToggleLike,
                 onDismiss = { contextMenuOffset = null },
                 onSelect = {
                     clickPulse = true
                     onSelect()
                 },
+                onRename = { beginRename() },
                 onDuplicate = onDuplicate,
                 onRemove = onRemove,
             )

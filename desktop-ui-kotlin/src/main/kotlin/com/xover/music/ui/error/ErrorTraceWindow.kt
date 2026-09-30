@@ -48,10 +48,7 @@ internal fun ErrorTraceWindow(
             window.extendedState = Frame.ICONIFIED
         }
 
-        MaterialTheme(
-            colors = xoverColors(),
-            typography = xoverTypography(),
-        ) {
+        XoverTheme {
             ErrorPanel(
                 event = event,
                 awtWindow = window,

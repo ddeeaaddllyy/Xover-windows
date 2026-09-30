@@ -14,6 +14,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.*;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -135,6 +136,103 @@ final class ListeningSessionServiceTest {
         service.play();
         assertEquals(load, audio.loadId);
         assertEquals(1, transport.playCount());
+    }
+
+    @Test
+    void renamingCurrentTrackKeepsPlaybackAndSharesTitleWithListeners() {
+        hostWithTrack("friend");
+        audio.ready();
+        service.onMessage("friend", PeerMessage.trackReady(audio.loadId));
+        service.play();
+        scheduler.advance(750);
+        String load = audio.loadId;
+        int loads = audio.loads;
+        service.renameTrack(0, "  Midnight Drive  ");
+
+        assertEquals("Midnight Drive", service.currentState().trackName());
+        assertEquals("Midnight Drive", service.currentState().currentTrack().title());
+        assertEquals(PlaybackStatus.PLAYING, service.currentState().playbackStatus());
+        assertEquals(load, audio.loadId);
+        assertEquals(loads, audio.loads);
+        PeerMessage update = transport.broadcasts.getLast();
+        assertEquals(MessageType.PLAYLIST_UPDATED, update.type());
+        assertEquals(load, update.loadId());
+        assertEquals("Midnight Drive", update.playlist().getFirst().title());
+    }
+
+    @Test
+    void listenerAcceptsRenamedTitleWithoutReloadAndCannotRenameItLocally() {
+        readyClient();
+        String load = audio.loadId;
+        int loads = audio.loads;
+        PlaylistTrack track = service.currentState().currentTrack();
+        service.onMessage("host", PeerMessage.playlistUpdated(
+            List.of(new PlaylistTrack(track.id(), "Night Ride", track.sourceUrl())), 0, load));
+        assertEquals("Night Ride", service.currentState().trackName());
+        assertEquals(loads, audio.loads);
+        service.renameTrack(0, "My own title");
+        assertEquals("Night Ride", service.currentState().trackName());
+    }
+
+    @Test
+    void blankTitleDoesNotChangeThePlaylist() {
+        hostWithTrack();
+        String original = service.currentState().currentTrack().title();
+        int messages = transport.broadcasts.size();
+        service.renameTrack(0, "   ");
+        assertEquals(original, service.currentState().currentTrack().title());
+        assertEquals(messages, transport.broadcasts.size());
+    }
+
+    @Test
+    void automaticallyFoundTitleUpdatesTheQueueWithoutReloadingAudio() throws Exception {
+        FakeAudio metadataAudio = new FakeAudio();
+        FakeTransport metadataTransport = new FakeTransport();
+        CountDownLatch enriched = new CountDownLatch(1);
+        CountDownLatch published = new CountDownLatch(1);
+        metadataTransport.onBroadcast = message -> {
+            if (message.type() == MessageType.PLAYLIST_UPDATED && !message.playlist().isEmpty()
+                && message.playlist().getFirst().title().equals("Artist — Midnight Drive")) published.countDown();
+        };
+        try (ListeningSessionService session = new ListeningSessionService(
+            metadataAudio, metadataTransport, () -> 10_000L, scheduler,
+            new ClockSynchronizer(), new DefaultErrorReporter(), uri -> Optional.of("Artist — Midnight Drive")
+        )) {
+            session.addObserver(state -> {
+                if (state.trackName().equals("Artist — Midnight Drive")) enriched.countDown();
+            });
+            session.startHost("127.0.0.1", 47321);
+            session.addTrackUrl("https://example.com/track.mp3");
+            assertTrue(enriched.await(3, TimeUnit.SECONDS));
+            assertTrue(published.await(3, TimeUnit.SECONDS));
+            assertEquals("Artist — Midnight Drive", session.currentState().currentTrack().title());
+            assertEquals(1, metadataAudio.loads);
+            assertEquals("Artist — Midnight Drive", metadataTransport.broadcasts.getLast().playlist().getFirst().title());
+        }
+    }
+
+    @Test
+    void automaticLookupDoesNotReplaceManualRename() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        FakeAudio metadataAudio = new FakeAudio();
+        try (ListeningSessionService session = new ListeningSessionService(
+            metadataAudio, new FakeTransport(), () -> 10_000L, scheduler,
+            new ClockSynchronizer(), new DefaultErrorReporter(), uri -> {
+                started.countDown();
+                release.await(3, TimeUnit.SECONDS);
+                return Optional.of("Automatic title");
+            }
+        )) {
+            session.addTrackUrl("https://example.com/track.mp3");
+            assertTrue(started.await(3, TimeUnit.SECONDS));
+            session.renameTrack(0, "My title");
+            release.countDown();
+            Thread.sleep(100);
+            assertEquals("My title", session.currentState().currentTrack().title());
+        } finally {
+            release.countDown();
+        }
     }
 
     @Test
@@ -420,9 +518,9 @@ final class ListeningSessionServiceTest {
         AudioPlayerListener listener;
         String loadId;
         Duration position = Duration.ZERO;
-        int plays, pauses, stops;
+        int plays, pauses, stops, loads;
         public void setListener(AudioPlayerListener listener) { this.listener = listener; }
-        public void load(URI uri, String loadId) { this.loadId = loadId; position = Duration.ZERO; }
+        public void load(URI uri, String loadId) { this.loadId = loadId; loads++; position = Duration.ZERO; }
         void ready() { listener.onReady(loadId, Duration.ofMinutes(3)); }
         public void play() { plays++; }
         public void pause() { pauses++; }
@@ -438,13 +536,14 @@ final class ListeningSessionServiceTest {
     private static final class FakeTransport implements PeerTransportPort {
         final List<PeerMessage> sent = new ArrayList<>();
         final List<PeerMessage> broadcasts = new ArrayList<>();
+        java.util.function.Consumer<PeerMessage> onBroadcast = message -> { };
         final List<String> directed = new ArrayList<>();
         public void setListener(PeerTransportListener listener) { }
         public void startHost(HostStartupConfig config) { }
         public void connect(PeerAddress address) { }
         public void send(PeerMessage message) { sent.add(message); }
         public void sendToPeer(String peerId, PeerMessage message) { directed.add(peerId); }
-        public void broadcast(PeerMessage message) { broadcasts.add(message); }
+        public void broadcast(PeerMessage message) { broadcasts.add(message); onBroadcast.accept(message); }
         public void disconnectPeer(String peerId) { }
         public void disconnect() { }
         public void close() { }

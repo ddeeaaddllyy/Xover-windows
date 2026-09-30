@@ -2,6 +2,8 @@ package com.xover.music.ui
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -16,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.xover.music.domain.SessionViewState
 import java.awt.Window as AwtWindow
 
@@ -37,19 +40,14 @@ internal fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(AccentColor.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                StatusDot(state.connectionStatus())
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("xover", fontFamily = XoverFontFamily, fontSize = 22.sp, color = PrimaryText)
+                    Text("/ 01", style = MaterialTheme.typography.overline, color = AccentColor)
+                }
+                Text("PRIVATE LISTENING", style = MaterialTheme.typography.overline, color = SecondaryText)
             }
-            Column {
-                Text("Xover", style = MaterialTheme.typography.h6, fontWeight = FontWeight.Bold)
-                Text(statusTitle(state), color = SecondaryText, style = MaterialTheme.typography.caption)
-            }
+
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -73,14 +71,12 @@ internal fun TabStrip(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(SoftLayerColor)
-            .padding(5.dp),
+            .height(42.dp),
     ) {
         val indicatorWidth = (maxWidth - tabSpacing * (tabs.size - 1)) / tabs.size
         val indicatorOffset by animateDpAsState(
             targetValue = (indicatorWidth + tabSpacing) * selectedIndex,
-            animationSpec = gentleMotion(),
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
             label = "tabIndicatorOffset",
         )
 
@@ -88,9 +84,9 @@ internal fun TabStrip(
             modifier = Modifier
                 .offset(x = indicatorOffset)
                 .width(indicatorWidth)
-                .height(38.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(SurfaceColor),
+                .offset(y = 39.dp)
+                .height(2.dp)
+                .background(AccentColor),
         )
 
         Row(
@@ -116,20 +112,19 @@ internal fun TabButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val foreground by animateColorAsState(if (selected) PrimaryText else SecondaryText, label = "tabForeground")
+    val foreground by animateColorAsState(if (selected) AccentColor else SecondaryText, label = "tabForeground")
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
-    val lift by animateDpAsState(
-        targetValue = if (hovered && !selected) (-1).dp else 0.dp,
-        animationSpec = gentleMotion(),
-        label = "tabButtonLift",
+    val hoverColor by animateColorAsState(
+        if (hovered && !selected) SoftLayerColor else androidx.compose.ui.graphics.Color.Transparent,
+        animationSpec = gentleMotion(), label = "tabHover",
     )
 
     Box(
         modifier = modifier
             .height(38.dp)
-            .offset(y = lift)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(hoverColor)
             .hoverable(interactionSource = interactionSource)
             .clickable(
                 interactionSource = interactionSource,
@@ -138,6 +133,6 @@ internal fun TabButton(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Text(tab.title, color = foreground, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        Text(tab.title, color = foreground, style = MaterialTheme.typography.body2, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
