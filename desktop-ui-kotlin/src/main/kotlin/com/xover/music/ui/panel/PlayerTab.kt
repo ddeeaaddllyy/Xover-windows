@@ -37,6 +37,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -435,6 +436,12 @@ internal fun PlaylistTrackRow(
                 )
             }
             LikeButton(liked, likesEnabled, onToggleLike)
+            if (canEdit && totalTracks > 1) {
+                Column {
+                    ReorderButton("↑", index > 0, "Move track up") { onMove(index - 1) }
+                    ReorderButton("↓", index < totalTracks - 1, "Move track down") { onMove(index + 1) }
+                }
+            }
             if (canEdit) {
                 Text("✎", color = AccentColor, modifier = Modifier.clickable { beginRename() })
                 Text(
@@ -487,5 +494,21 @@ internal fun PlaylistTrackRow(
                 onRemove = onRemove,
             )
         }
+    }
+}
+
+@Composable
+private fun ReorderButton(symbol: String, enabled: Boolean, label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier.size(28.dp).clickable(
+            enabled = enabled,
+            onClickLabel = label,
+            role = Role.Button,
+            onClick = onClick,
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(symbol, color = if (enabled) AccentColor else SecondaryText.copy(alpha = 0.35f),
+            style = MaterialTheme.typography.body1.copy(fontWeight = FontWeight.SemiBold))
     }
 }

@@ -77,8 +77,9 @@ Each is measured at its own fixed size while a single animation drives window si
 panel opacity, avoiding narrow constraints on the expanded form and retaining input state.
 Native taskbar minimization uses Compose `WindowState.isMinimized`.
 The compact player exposes host play/pause, next-track and stop actions, plus local mute
-with volume restoration. Next advances without wrapping and preserves playback intent;
-stop cancels pending playback and rewinds using existing pause/seek protocol messages.
+with volume restoration. Manual Next advances without wrapping; reaching the end of a
+track advances automatically and wraps to the first track after the last one. Stop
+cancels pending playback and rewinds using existing pause/seek protocol messages.
 
 The UI is physically split into folders by responsibility:
 

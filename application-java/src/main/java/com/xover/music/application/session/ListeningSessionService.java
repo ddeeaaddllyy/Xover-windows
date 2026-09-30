@@ -520,8 +520,11 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     public synchronized void onEnded(String endedLoadId) {
         if (!isCurrentLoad(endedLoadId)) return;
         if (state.role() == DeviceRole.HOST) {
-            pause();
-            seek(0L);
+            if (state.playbackStatus() != PlaybackStatus.PLAYING || state.playlist().isEmpty()) return;
+            int nextIndex = (state.currentTrackIndex() + 1) % state.playlist().size();
+            selectTrack(nextIndex);
+            play();
+            return;
         }
         updateState(previous -> previous.withPlaybackStatus(PlaybackStatus.PAUSED).withMessage("Track ended"));
     }

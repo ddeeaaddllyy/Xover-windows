@@ -100,6 +100,72 @@ class KtorPeerTransportTest {
         }
     }
 
+    @Test
+    fun hostAndClientKeepPlayingAcrossTrackEndAndPlaylistWrap() {
+        val errors = CopyOnWriteArrayList<Throwable>()
+        fun service(audio: TestAudio) = ListeningSessionService(
+            audio, KtorPeerTransport(), System::currentTimeMillis,
+            Executors.newScheduledThreadPool(2), ClockSynchronizer(),
+            ErrorReporter { _, cause -> errors.add(cause) },
+        )
+        val hostAudio = TestAudio()
+        val clientAudio = TestAudio()
+        val host = service(hostAudio)
+        val client = service(clientAudio)
+        try {
+            host.addTrackUrl("https://example.com/first.mp3")
+            host.addTrackUrl("https://example.com/second.mp3")
+            val port = freePort()
+            host.startHost("127.0.0.1", port)
+            client.connectToHost("127.0.0.1", port)
+            assertNotNull(hostAudio.loadEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.loadEvents.poll(5, TimeUnit.SECONDS))
+            hostAudio.ready()
+            clientAudio.ready()
+            host.play()
+            assertNotNull(hostAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.playEvents.poll(5, TimeUnit.SECONDS))
+
+            host.pause()
+            assertTrue(awaitState(client) { it.playbackStatus() == com.xover.music.domain.PlaybackStatus.PAUSED })
+            host.seek(1_000)
+            assertTrue(awaitState(client) { it.positionMillis() == 1_000L })
+            host.play()
+            assertNotNull(hostAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.playEvents.poll(5, TimeUnit.SECONDS))
+
+            hostAudio.end()
+            assertNotNull(hostAudio.loadEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.loadEvents.poll(5, TimeUnit.SECONDS))
+            assertEquals(1, host.currentState().currentTrackIndex())
+            assertEquals(1, client.currentState().currentTrackIndex())
+            hostAudio.ready()
+            clientAudio.ready()
+            assertNotNull(hostAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.playEvents.poll(5, TimeUnit.SECONDS))
+
+            hostAudio.end()
+            assertNotNull(hostAudio.loadEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.loadEvents.poll(5, TimeUnit.SECONDS))
+            assertEquals(0, host.currentState().currentTrackIndex())
+            assertEquals(0, client.currentState().currentTrackIndex())
+            hostAudio.ready()
+            clientAudio.ready()
+            assertNotNull(hostAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            assertTrue(errors.isEmpty(), errors.toString())
+        } finally {
+            client.close()
+            host.close()
+        }
+    }
+
+    private fun awaitState(service: ListeningSessionService, matches: (com.xover.music.domain.SessionViewState) -> Boolean): Boolean {
+        val reached = CountDownLatch(1)
+        service.addObserver { if (matches(it)) reached.countDown() }
+        return reached.await(5, TimeUnit.SECONDS)
+    }
+
     private fun freePort() = ServerSocket(0).use { it.localPort }
 
     private class TestAudio : AudioPlayerPort {
@@ -107,10 +173,13 @@ class KtorPeerTransportTest {
         lateinit var loadId: String
         val loaded = CountDownLatch(1)
         val played = CountDownLatch(1)
+        val loadEvents = LinkedBlockingQueue<String>()
+        val playEvents = LinkedBlockingQueue<Unit>()
         override fun setListener(listener: AudioPlayerListener) { this.audioListener = listener }
-        override fun load(uri: URI, loadId: String) { this.loadId = loadId; loaded.countDown() }
+        override fun load(uri: URI, loadId: String) { this.loadId = loadId; loaded.countDown(); loadEvents.add(loadId) }
         fun ready() { audioListener.onReady(loadId, Duration.ofMinutes(2)) }
-        override fun play() { played.countDown() }
+        fun end() { audioListener.onEnded(loadId) }
+        override fun play() { played.countDown(); playEvents.add(Unit) }
         override fun pause() = Unit
         override fun stop() = Unit
         override fun seek(position: Duration) = Unit

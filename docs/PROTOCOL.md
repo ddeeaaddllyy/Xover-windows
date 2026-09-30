@@ -56,6 +56,8 @@ Clients display the new title without reloading or interrupting playback.
 `loadId` identifies one loading attempt, including reselecting the same track. The host
 generates it; all readiness and playback messages refer to it. Reordering the playlist
 preserves it. A new identifier makes clients reload even if the track ID is unchanged.
+When playback reaches the end, the host selects the next track, wrapping to the first
+after the last one. The new load waits for every listener's readiness before `PLAY_AT`.
 
 ### `TRACK_READY` / `TRACK_FAILED`
 
