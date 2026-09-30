@@ -47,7 +47,7 @@ internal fun FloatingSurface(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(20.dp))
-                .background(opaquePanelColor(opacity))
+                .background(SurfaceColor.copy(alpha = opacity))
                 .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(20.dp))
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),

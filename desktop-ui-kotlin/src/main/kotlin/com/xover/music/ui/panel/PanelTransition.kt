@@ -8,6 +8,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
@@ -16,18 +18,22 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun PanelTransition(
     progress: Float,
+    opacity: Float = 1f,
     compact: @Composable () -> Unit,
     expanded: @Composable () -> Unit,
 ) {
     Layout(
-        modifier = Modifier.clipToBounds().drawBehind {
-            if (progress > 0f && progress < 1f) {
-                val inset = 10.dp.toPx()
-                drawRoundRect(SurfaceColor, Offset(inset, inset),
-                    Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset * 2).coerceAtLeast(0f)),
-                    CornerRadius(18.dp.toPx()))
-            }
-        },
+        modifier = Modifier
+            .graphicsLayer(alpha = opacity, compositingStrategy = CompositingStrategy.Offscreen)
+            .clipToBounds()
+            .drawBehind {
+                if (progress > 0f && progress < 1f) {
+                    val inset = 10.dp.toPx()
+                    drawRoundRect(SurfaceColor, Offset(inset, inset),
+                        Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset * 2).coerceAtLeast(0f)),
+                        CornerRadius(18.dp.toPx()))
+                }
+            },
         content = {
             Box { expanded() }
             Box { compact() }

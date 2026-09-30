@@ -89,6 +89,11 @@ class DesktopApplication(
             animationSpec = tween(320, easing = FastOutSlowInEasing),
             label = "windowCollapse",
         )
+        val panelOpacity by animateFloatAsState(
+            targetValue = settings.opacity,
+            animationSpec = gentleMotion(),
+            label = "panelOpacity",
+        )
 
         LaunchedEffect(collapseProgress) {
             windowState.size = DpSize(
@@ -122,10 +127,11 @@ class DesktopApplication(
             XoverTheme {
                 PanelTransition(
                     progress = collapseProgress,
+                    opacity = panelOpacity,
                     compact = {
                         CollapsedRail(
                             state = state.value,
-                            opacity = settings.opacity,
+                            opacity = 1f,
                             awtWindow = window,
                             onExpand = { collapsed = false },
                             onMinimize = minimizeWindow,
@@ -138,7 +144,7 @@ class DesktopApplication(
                                 }
                             },
                             onNext = { perform("Next track") { sessionService.nextTrack() } },
-                            onStop = { perform("Stop playback") { sessionService.stopPlayback() } },
+                            onBack = { perform("Back track") { sessionService.backTrack() } },
                             dockedEdges = dockedEdges,
                             onMute = {
                                 val restoreVolume = audibleVolume

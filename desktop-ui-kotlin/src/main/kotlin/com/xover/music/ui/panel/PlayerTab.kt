@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -29,7 +28,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -107,7 +105,7 @@ internal fun PlayerTab(
                     targetState = state.trackName().ifBlank { "Room for a\ngood record." },
                     transitionSpec = {
                         (fadeIn(tween(260)) + slideInVertically(tween(260)) { it / 3 }) togetherWith
-                            (fadeOut(tween(150)) + slideOutVertically(tween(210)) { -it / 3 })
+                            fadeOut(tween(0))
                     }, label = "trackTitle",
                 ) { title ->
                     Text(title, style = MaterialTheme.typography.h6, color = PrimaryText,

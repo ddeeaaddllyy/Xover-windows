@@ -349,6 +349,18 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         if (resume) play();
     }
 
+    public synchronized void backTrack() {
+        if (state.role() != DeviceRole.HOST || state.currentTrackIndex() == 0) {
+            return;
+        }
+        boolean resume = state.playbackStatus() == PlaybackStatus.PLAYING || playRequested || pendingPlayTask != null;
+        if (state.positionMillis() > 2500) {
+            seek(0L);
+        }
+        selectTrack(state.currentTrackIndex() - 1);
+        if (resume) play();
+    }
+
     public synchronized void renameTrack(int trackIndex, String title) {
         if (state.role() == DeviceRole.CLIENT) {
             updateState(previous -> previous.withMessage("Only host can edit the playlist"));
@@ -388,15 +400,6 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 return;
             }
         }
-    }
-
-    /** Stop at the beginning, keeping the loaded track available for Play. */
-    public synchronized void stopPlayback() {
-        if (state.role() != DeviceRole.HOST || state.currentTrack() == null) {
-            return;
-        }
-        pause();
-        seek(0L);
     }
 
     public synchronized void pause() {

@@ -68,8 +68,9 @@ It also supplies the HTTP metadata adapter used to read titles from supported tr
 ### `desktop-ui-kotlin`
 
 Compose Desktop UI. It observes `SessionViewState` and forwards user actions to `ListeningSessionService`.
-The saved panel visibility value shades an opaque surface rather than making the window
-content translucent, so other windows never show through the panel.
+The saved panel opacity is applied to the composed panel as one offscreen layer.
+The window itself stays interactive, while the desktop remains visible through the
+panel and inactive controls cannot show through it.
 
 The expanded panel and compact player remain composed across collapse/expand transitions.
 Each is measured at its own fixed size while a single animation drives window size and
