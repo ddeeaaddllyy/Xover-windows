@@ -11,7 +11,7 @@ class UiSettingsStoreTest {
     lateinit var directory: Path
 
     @Test
-    fun restoresAddressesAndOpacityFromANewStoreInstance() {
+    fun `restores Addresses And Opacity From A New Store Instance`() {
         val file = directory.resolve("profile/settings.properties")
         val settings = UiSettings("26.10.20.30", "26.40.50.60", "48484", 0.82f, true)
         UiSettingsStore(file).save(settings)

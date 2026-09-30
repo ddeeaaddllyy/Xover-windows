@@ -16,6 +16,19 @@ Xover is a desktop MVP for synchronized music listening with a friend over a pri
 - Playback waits until the host and every connected listener report that the selected track is ready.
 - VPN addresses, port, panel opacity, and keep-above preference survive restarts.
 
+## Liked Tracks
+
+Click a track's heart or right-click it and choose **Like track**. The heart animates
+after the link is saved. Open **Liked** and press **Add** to append a saved link to the
+current playlist without interrupting the current track. Hosts and disconnected users
+can add tracks; connected listeners can save local favorites but cannot edit the shared
+playlist. Click a filled heart (or **Unlike**) to remove only the bookmark.
+
+Links and display titles are stored locally in `%USERPROFILE%\.xover\liked-tracks.db`
+(`~/.xover/liked-tracks.db` on other systems), using SQLite. The database survives app
+restarts and installation-folder changes. The same URL is stored once; audio files
+are not stored in the database. No SQLite installation is required.
+
 ## Saved Settings
 
 Preferences are stored in `%USERPROFILE%\.xover\settings.properties` on Windows

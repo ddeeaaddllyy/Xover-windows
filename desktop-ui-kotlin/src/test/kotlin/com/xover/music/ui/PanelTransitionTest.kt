@@ -26,6 +26,7 @@ import javax.imageio.ImageIO
 /** Opt-in native window smoke test; needs an interactive desktop. */
 @EnabledIfEnvironmentVariable(named = "XOVER_WINDOW_SMOKE", matches = "1")
 class PanelTransitionTest {
+    @OptIn(ExperimentalStdlibApi::class)
     @Test
     fun restoresPanelWithoutRemeasuringItsContentOrLosingState() {
         val progress = mutableStateOf(0f)
