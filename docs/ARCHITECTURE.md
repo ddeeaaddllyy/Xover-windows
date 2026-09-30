@@ -41,6 +41,7 @@ Important classes:
 - `ClockSynchronizer`
 - `AudioPlayerPort`
 - `PeerTransportPort`
+- `TrackTitleLookup` for optional background title enrichment; manual renames remain authoritative.
 
 ### `infrastructure-kotlin`
 
@@ -62,10 +63,13 @@ Client mode:
 ### `audio-java`
 
 Implements `AudioPlayerPort` with JavaFX MediaPlayer. The application layer sees only `load`, `play`, `pause`, `seek`, and position/duration data.
+It also supplies the HTTP metadata adapter used to read titles from supported track pages.
 
 ### `desktop-ui-kotlin`
 
 Compose Desktop UI. It observes `SessionViewState` and forwards user actions to `ListeningSessionService`.
+The saved panel visibility value shades an opaque surface rather than making the window
+content translucent, so other windows never show through the panel.
 
 The expanded panel and compact player remain composed across collapse/expand transitions.
 Each is measured at its own fixed size while a single animation drives window size and

@@ -1,6 +1,13 @@
 package com.xover.music.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -88,13 +95,24 @@ internal fun PlayerTab(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Text("ON THE DECK", style = MaterialTheme.typography.overline, color = AccentColor)
-            Text(state.playbackStatus().name, style = MaterialTheme.typography.overline, color = SecondaryText)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                PulseEqualizer(playing, Modifier.size(width = 19.dp, height = 14.dp))
+                Text(state.playbackStatus().name, style = MaterialTheme.typography.overline, color = SecondaryText)
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
             RecordArtwork(playing = state.playbackStatus() == PlaybackStatus.PLAYING, modifier = Modifier.size(100.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(state.trackName().ifBlank { "Room for a\ngood record." },
-                    style = MaterialTheme.typography.h6, color = PrimaryText, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                AnimatedContent(
+                    targetState = state.trackName().ifBlank { "Room for a\ngood record." },
+                    transitionSpec = {
+                        (fadeIn(tween(260)) + slideInVertically(tween(260)) { it / 3 }) togetherWith
+                            (fadeOut(tween(150)) + slideOutVertically(tween(210)) { -it / 3 })
+                    }, label = "trackTitle",
+                ) { title ->
+                    Text(title, style = MaterialTheme.typography.h6, color = PrimaryText,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
                 Text(if (state.currentTrack() == null) "Add a link to begin listening." else
                     "TRACK ${(state.currentTrackIndex() + 1).toString().padStart(2, '0')} / ${state.playlist().size.toString().padStart(2, '0')}",
                     style = MaterialTheme.typography.caption, color = SecondaryText)

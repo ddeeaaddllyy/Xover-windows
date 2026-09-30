@@ -25,4 +25,7 @@ dependencies {
     implementation("org.openjfx:javafx-graphics:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-media:$javafxVersion:$javafxPlatform")
     implementation("org.openjfx:javafx-swing:$javafxVersion:$javafxPlatform")
+    testImplementation(platform("org.junit:junit-bom:5.13.4"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

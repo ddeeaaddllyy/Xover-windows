@@ -78,11 +78,22 @@ class LikedTracksUiTest {
             }
             robot.waitForIdle()
             Thread.sleep(300)
-            click(380, 49)
+            repeat(3) {
+                if (liked.value) return@repeat
+                click(380, 49)
+                val deadline = System.nanoTime() + 750_000_000L
+                while (!liked.value && System.nanoTime() < deadline) Thread.sleep(30)
+                if (!liked.value) EventQueue.invokeAndWait { window.toFront(); window.requestFocus() }
+            }
             await { liked.value }
             Thread.sleep(400)
             capture(window, "liked-tracks")
-            click(362, 290)
+            repeat(3) {
+                if (added.get() > 0) return@repeat
+                click(362, 290)
+                val deadline = System.nanoTime() + 750_000_000L
+                while (added.get() == 0 && System.nanoTime() < deadline) Thread.sleep(30)
+            }
             await { added.get() == 1 }
             click(380, 49)
             await { !liked.value }

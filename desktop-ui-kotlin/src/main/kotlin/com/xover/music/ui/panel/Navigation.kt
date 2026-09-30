@@ -2,6 +2,8 @@ package com.xover.music.ui
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
@@ -74,7 +76,7 @@ internal fun TabStrip(
         val indicatorWidth = (maxWidth - tabSpacing * (tabs.size - 1)) / tabs.size
         val indicatorOffset by animateDpAsState(
             targetValue = (indicatorWidth + tabSpacing) * selectedIndex,
-            animationSpec = gentleMotion(),
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
             label = "tabIndicatorOffset",
         )
 

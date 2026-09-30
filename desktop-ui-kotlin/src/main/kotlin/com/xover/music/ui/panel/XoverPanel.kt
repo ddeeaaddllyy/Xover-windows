@@ -3,7 +3,12 @@ package com.xover.music.ui
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -77,9 +82,13 @@ internal fun XoverPanel(
 
         Divider(color = BorderColor.copy(alpha = 0.7f))
 
-        Crossfade(
+        AnimatedContent(
             targetState = selectedTab,
-            animationSpec = tween(180),
+            transitionSpec = {
+                val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                (fadeIn(tween(260)) + slideInHorizontally(tween(320)) { direction * it / 4 }) togetherWith
+                    (fadeOut(tween(180)) + slideOutHorizontally(tween(280)) { -direction * it / 4 })
+            },
             label = "tabContent",
             modifier = Modifier.fillMaxWidth().weight(1f),
         ) { tab ->
@@ -204,7 +213,7 @@ internal fun CollapsedRail(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(shape)
-                .background(SurfaceColor.copy(alpha = opacity))
+                .background(opaquePanelColor(opacity))
                 .border(BorderStroke(1.dp, border), shape)
                 .padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -216,6 +225,7 @@ internal fun CollapsedRail(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 RecordArtwork(state.playbackStatus() == PlaybackStatus.PLAYING, Modifier.size(26.dp))
+                PulseEqualizer(playing, Modifier.size(width = 16.dp, height = 13.dp))
                 Text(
                     state.trackName().ifBlank { "Xover" },
                     color = PrimaryText,

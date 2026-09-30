@@ -10,6 +10,8 @@ import com.xover.music.application.network.PeerTransportPort;
 import com.xover.music.application.session.ListeningSessionService;
 import com.xover.music.application.sync.ClockSynchronizer;
 import com.xover.music.audio.JavaFxAudioPlayer;
+import com.xover.music.audio.resolver.HttpTrackTitleLookup;
+import com.xover.music.application.playlist.TrackTitleLookup;
 import com.xover.music.infrastructure.KtorPeerTransport;
 import com.xover.music.infrastructure.SqliteLikedTrackRepository;
 import com.xover.music.application.library.LikedTracksService;
@@ -85,14 +87,21 @@ public final class AppModule {
 
     @Provides
     @Singleton
+    TrackTitleLookup provideTrackTitleLookup() {
+        return new HttpTrackTitleLookup();
+    }
+
+    @Provides
+    @Singleton
     ListeningSessionService provideListeningSessionService(
         AudioPlayerPort audioPlayer,
         PeerTransportPort transport,
         Clock clock,
         ScheduledExecutorService scheduler,
         ClockSynchronizer clockSynchronizer,
-        ErrorReporter errorReporter
+        ErrorReporter errorReporter,
+        TrackTitleLookup trackTitleLookup
     ) {
-        return new ListeningSessionService(audioPlayer, transport, clock, scheduler, clockSynchronizer, errorReporter);
+        return new ListeningSessionService(audioPlayer, transport, clock, scheduler, clockSynchronizer, errorReporter, trackTitleLookup);
     }
 }

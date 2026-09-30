@@ -108,7 +108,7 @@ class WindowLayoutSmokeTest {
             val screenshot = File("build/reports/window-smoke/track-menu-bottom-right.png")
             screenshot.parentFile.mkdirs()
             ImageIO.write(robot.createScreenCapture(window.bounds), "png", screenshot)
-            // The menu flips upward; Add again is the third of its four actions.
+            // The menu flips upward; Add again stays visible above Delete.
             click(280, 610, InputEvent.BUTTON1_DOWN_MASK)
             Thread.sleep(250)
             assertEquals(1, duplicates.get(), "The duplicate action must be fully visible and clickable")

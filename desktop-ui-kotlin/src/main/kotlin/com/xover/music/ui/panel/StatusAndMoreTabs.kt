@@ -93,7 +93,7 @@ internal fun MoreTab(
             Text("Keep above", color = PrimaryText)
             Switch(checked = pinned, onCheckedChange = onPinnedChange)
         }
-        Text("Opacity", color = SecondaryText, style = MaterialTheme.typography.caption)
+        Text("Panel brightness", color = SecondaryText, style = MaterialTheme.typography.caption)
         Slider(
             value = opacity,
             onValueChange = onOpacityChange,

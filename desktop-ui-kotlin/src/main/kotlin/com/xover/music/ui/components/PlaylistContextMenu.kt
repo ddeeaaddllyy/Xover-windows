@@ -153,7 +153,7 @@ internal fun PlaylistTrackContextMenu(
                     .heightIn(max = maxHeight.coerceAtLeast(1.dp))
                     .shadow(8.dp, RoundedCornerShape(10.dp))
                     .clip(RoundedCornerShape(10.dp))
-                    .background(SurfaceColor.copy(alpha = 0.98f))
+                    .background(SurfaceColor)
                     .border(BorderStroke(1.dp, BorderColor.copy(alpha = 0.86f)), RoundedCornerShape(10.dp))
                     .verticalScroll(rememberScrollState())
                     .padding(7.dp),

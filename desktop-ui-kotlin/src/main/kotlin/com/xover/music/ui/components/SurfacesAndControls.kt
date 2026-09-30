@@ -47,7 +47,7 @@ internal fun FloatingSurface(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(RoundedCornerShape(20.dp))
-                .background(SurfaceColor.copy(alpha = opacity))
+                .background(opaquePanelColor(opacity))
                 .border(BorderStroke(1.dp, BorderColor), RoundedCornerShape(20.dp))
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -247,8 +247,8 @@ internal fun MotionButton(
     val pressed by interactionSource.collectIsPressedAsState()
     val buttonShape = RoundedCornerShape(8.dp)
     val scale by animateFloatAsState(
-        targetValue = if (enabled && pressed) 0.985f else 1f,
-        animationSpec = gentleMotion(),
+        targetValue = if (enabled && pressed) 0.955f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
         label = "motionButtonScale",
     )
     val background by animateColorAsState(

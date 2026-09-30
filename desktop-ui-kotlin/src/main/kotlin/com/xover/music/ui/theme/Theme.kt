@@ -8,6 +8,7 @@ import androidx.compose.material.darkColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -123,6 +124,11 @@ internal val ErrorTimestampFormatter = DateTimeFormatter
     .withZone(ZoneId.systemDefault())
 
 internal val SurfaceColor = Color(0xFF171A1C)
+/** Keeps the panel opaque while the saved visibility value controls its shade. */
+internal fun opaquePanelColor(visibility: Float): Color = lerp(
+    Color(0xFF0E1012), SurfaceColor,
+    ((visibility - 0.78f) / 0.20f).coerceIn(0f, 1f),
+)
 internal val SoftLayerColor = Color(0xFF222629)
 internal val BorderColor = Color(0xFF343A3D)
 internal val PrimaryText = Color(0xFFF0ECE3)

@@ -5,6 +5,7 @@ import com.xover.music.application.audio.AudioPlayerPort;
 import com.xover.music.application.clock.Clock;
 import com.xover.music.application.common.diagnostics.ErrorReporter;
 import com.xover.music.application.playlist.TrackSourceValidator;
+import com.xover.music.application.playlist.TrackTitleLookup;
 import com.xover.music.application.network.error.NetworkTransportException;
 import com.xover.music.application.network.error.RemoteProtocolException;
 import com.xover.music.application.common.error.UnexpectedXoverException;
@@ -34,7 +35,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -55,6 +59,12 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     private final ScheduledExecutorService scheduler;
     private final ClockSynchronizer clockSynchronizer;
     private final ErrorReporter errorReporter;
+    private final TrackTitleLookup trackTitleLookup;
+    private final ExecutorService titleExecutor = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "xover-track-titles");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final List<SessionObserver> observers = new CopyOnWriteArrayList<>();
 
     private volatile SessionViewState state = SessionViewState.idle();
@@ -81,12 +91,25 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         ClockSynchronizer clockSynchronizer,
         ErrorReporter errorReporter
     ) {
+        this(audioPlayer, transport, clock, scheduler, clockSynchronizer, errorReporter, uri -> Optional.empty());
+    }
+
+    public ListeningSessionService(
+        AudioPlayerPort audioPlayer,
+        PeerTransportPort transport,
+        Clock clock,
+        ScheduledExecutorService scheduler,
+        ClockSynchronizer clockSynchronizer,
+        ErrorReporter errorReporter,
+        TrackTitleLookup trackTitleLookup
+    ) {
         this.audioPlayer = Objects.requireNonNull(audioPlayer, "audioPlayer");
         this.transport = Objects.requireNonNull(transport, "transport");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.clockSynchronizer = Objects.requireNonNull(clockSynchronizer, "clockSynchronizer");
         this.errorReporter = Objects.requireNonNull(errorReporter, "errorReporter");
+        this.trackTitleLookup = Objects.requireNonNull(trackTitleLookup, "trackTitleLookup");
 
         this.audioPlayer.setListener(this);
         this.transport.setListener(this);
@@ -199,6 +222,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 loadCurrentPlaylistTrack("Loading added track");
             }
             broadcastPlaylist();
+            titleExecutor.submit(() -> {
+                try {
+                    trackTitleLookup.lookup(sourceUri)
+                        .ifPresent(title -> applyDetectedTitle(track.id(), track.title(), title));
+                } catch (Exception ignored) {
+                    // The URL-based title remains usable if metadata is unavailable.
+                }
+            });
         } catch (XoverException ex) {
             reportRecoverable(ex.title(), ex);
             updateState(previous -> previous.withMessage("Could not add track URL: " + ex.getMessage()));
@@ -344,6 +375,19 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 .withMessage("Renamed track: " + nextTitle);
         });
         broadcastPlaylist();
+    }
+
+    private synchronized void applyDetectedTitle(String trackId, String fallbackTitle, String title) {
+        if (state.role() == DeviceRole.CLIENT || title == null) return;
+        String resolvedTitle = title.trim();
+        if (resolvedTitle.isEmpty() || resolvedTitle.length() > 160) return;
+        for (int index = 0; index < state.playlist().size(); index++) {
+            PlaylistTrack track = state.playlist().get(index);
+            if (track.id().equals(trackId) && track.title().equals(fallbackTitle)) {
+                renameTrack(index, resolvedTitle);
+                return;
+            }
+        }
     }
 
     /** Stop at the beginning, keeping the loaded track available for Play. */
@@ -598,6 +642,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     @Override
     public void close() {
+        titleExecutor.shutdownNow();
         synchronized (this) {
             stopTimeSyncLoop();
             resetReadiness("");
