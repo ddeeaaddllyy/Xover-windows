@@ -1,0 +1,10 @@
+*.ico binary
+*.png binary
+
+application-java/src/test/ export-ignore
+audio-java/src/test/ export-ignore
+desktop-ui-kotlin/src/test/ export-ignore
+domain-java/src/test/ export-ignore
+infrastructure-kotlin/src/test/ export-ignore
+.gitattributes export-ignore
+.gitignore export-ignore

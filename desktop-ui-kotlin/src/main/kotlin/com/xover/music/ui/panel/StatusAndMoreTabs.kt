@@ -16,6 +16,7 @@ import com.xover.music.domain.SessionViewState
 internal fun StatusTab(
     state: SessionViewState,
     onDisconnectPeer: (String) -> Unit,
+    onSetPeerPlaylistEditing: (String, Boolean) -> Unit,
 ) {
     ScreenIntro("On the same wavelength.", "The connection behind the listening room.")
     Section("Session state") {
@@ -34,7 +35,9 @@ internal fun StatusTab(
                 ConnectedPeerRow(
                     peerId = peerId,
                     canDisconnect = state.role() == DeviceRole.HOST,
+                    canEditPlaylist = state.editablePeerIds().contains(peerId),
                     onDisconnectPeer = onDisconnectPeer,
+                    onSetPeerPlaylistEditing = onSetPeerPlaylistEditing,
                 )
             }
         }
@@ -54,6 +57,7 @@ internal fun MoreTab(
     onOpacityChange: (Float) -> Unit,
     onDisconnect: () -> Unit,
     onDisconnectPeer: (String) -> Unit,
+    onSetPeerPlaylistEditing: (String, Boolean) -> Unit,
     onCollapse: () -> Unit,
     onMinimize: () -> Unit,
 ) {
@@ -77,7 +81,9 @@ internal fun MoreTab(
                     ConnectedPeerRow(
                         peerId = peerId,
                         canDisconnect = true,
+                        canEditPlaylist = state.editablePeerIds().contains(peerId),
                         onDisconnectPeer = onDisconnectPeer,
+                        onSetPeerPlaylistEditing = onSetPeerPlaylistEditing,
                     )
                 }
             }
@@ -110,10 +116,13 @@ internal fun MoreTab(
 internal fun ConnectedPeerRow(
     peerId: String,
     canDisconnect: Boolean,
+    canEditPlaylist: Boolean,
     onDisconnectPeer: (String) -> Unit,
+    onSetPeerPlaylistEditing: (String, Boolean) -> Unit,
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().playlistContextMenuTrigger(canDisconnect) { menuOpen = true },
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -125,12 +134,23 @@ internal fun ConnectedPeerRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (canEditPlaylist) {
+            Text("Editor", color = AccentColor, style = MaterialTheme.typography.caption)
+        }
         SoftButton(
             text = "Kick",
             onClick = { onDisconnectPeer(peerId) },
             enabled = canDisconnect,
             modifier = Modifier.width(82.dp),
         )
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(onClick = {
+                menuOpen = false
+                onSetPeerPlaylistEditing(peerId, !canEditPlaylist)
+            }) {
+                Text(if (canEditPlaylist) "Remove playlist editing" else "Allow playlist editing")
+            }
+        }
     }
 }
 

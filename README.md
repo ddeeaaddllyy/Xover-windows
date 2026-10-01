@@ -31,7 +31,7 @@ reporting readiness. **Pause** cancels the request. A loading error, disconnect,
 or two-minute wait timeout cancels automatic start. Select a failed track again to reload it.
 Joining an active session pauses playback until the new listener is ready.
 
-Both sides must use protocol version 2 introduced by this change; older builds are incompatible.
+Both sides must use protocol version 3; older builds are incompatible.
 Readiness means JavaFX has prepared the media for playback, not that the entire file has been
 downloaded. Streaming interruptions and long-term clock drift remain possible.
 

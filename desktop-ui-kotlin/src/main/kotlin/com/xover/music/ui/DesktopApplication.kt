@@ -239,6 +239,11 @@ class DesktopApplication(
                                     sessionService.disconnectPeer(peerId)
                                 }
                             },
+                            onSetPeerPlaylistEditing = { peerId, allowed ->
+                                perform("Change playlist editing permission") {
+                                    sessionService.setPeerPlaylistEditing(peerId, allowed)
+                                }
+                            },
                         )
                     },
                 )

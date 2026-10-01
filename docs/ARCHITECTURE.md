@@ -52,6 +52,8 @@ Host mode:
 - starts an embedded Ktor server;
 - accepts WebSocket peers at `/sync`.
 - broadcasts playlist links and playback commands.
+- grants playlist editing to individual connected peers; the application layer
+  checks each edit request against its WebSocket sender before changing the queue.
 
 Client mode:
 

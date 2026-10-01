@@ -71,7 +71,7 @@ internal fun PlayerTab(
     onLocalVolumeChange: (Int) -> Unit,
 ) {
     val duration = max(1L, state.durationMillis())
-    val canEditPlaylist = state.role() != DeviceRole.CLIENT
+    val canEditPlaylist = state.canEditPlaylist()
     var trackUrl by remember { mutableStateOf("") }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var seeking by remember { mutableStateOf(false) }

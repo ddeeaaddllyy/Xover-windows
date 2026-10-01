@@ -39,7 +39,7 @@ internal fun LikedTracksTab(
             tracks.isEmpty() -> Text("Tap a heart or right-click a track to save it here.", color = SecondaryText)
         }
         if (!canAdd) {
-            Text("Only the host can add tracks to the shared playlist.", color = SecondaryText, style = MaterialTheme.typography.caption)
+            Text("Ask the host for playlist editing access to add tracks.", color = SecondaryText, style = MaterialTheme.typography.caption)
         }
         tracks.forEach { track ->
             key(track.sourceUrl()) {

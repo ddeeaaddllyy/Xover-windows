@@ -1,7 +1,7 @@
 # Xover Protocol
 
-Transport is WebSocket JSON over Ktor. This revision uses **protocol version 2**;
-all peers must update together. Incoming messages without `protocolVersion: 2`
+Transport is WebSocket JSON over Ktor. This revision uses **protocol version 3**;
+all peers must update together. Incoming messages without `protocolVersion: 3`
 are rejected. Outbound frames are bounded to 64 KiB and queued in order per peer.
 
 Default host port: 47321
@@ -14,7 +14,7 @@ WS  /sync
 
 ```json
 {
-  "protocolVersion": 2,
+  "protocolVersion": 3,
   "loadId": "track-load-uuid",
   "type": "PLAY_AT",
   "nonce": "uuid",
@@ -32,11 +32,28 @@ WS  /sync
       "sourceUrl": "https://soundcloud.com/artist/track-name"
     }
   ],
-  "currentTrackIndex": 0
+  "currentTrackIndex": 0,
+  "canEditPlaylist": false
 }
 ```
 
 All fields are present to keep parsing simple. Message type decides which fields matter.
+
+## Playlist editing permissions
+
+The host grants or removes editing access for each connected WebSocket peer. New peers
+start without access, and access ends on disconnect. The host sends
+`PLAYLIST_EDIT_PERMISSION` directly to that peer with `canEditPlaylist`. The client
+uses it to enable playlist controls, while the host checks every edit request against
+the actual WebSocket sender. Playback controls remain host-only.
+
+An authorized client may send `PLAYLIST_ADD_REQUEST` (`trackName` contains a URL),
+`PLAYLIST_REMOVE_REQUEST`, `PLAYLIST_MOVE_REQUEST`, `PLAYLIST_RENAME_REQUEST`, or
+`PLAYLIST_SELECT_REQUEST`. For existing tracks, `mediaUri` contains the track ID;
+`trackName` contains the new title for renames, and `currentTrackIndex` contains the
+destination index for moves. The host validates and applies each request, then
+broadcasts the resulting `PLAYLIST_UPDATED` to everyone. Requests from peers without
+editing access are ignored.
 
 ## Message Types
 

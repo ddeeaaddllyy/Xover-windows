@@ -53,6 +53,7 @@ internal fun XoverPanel(
     onLocalVolumeChange: (Int) -> Unit,
     onDisconnect: () -> Unit,
     onDisconnectPeer: (String) -> Unit,
+    onSetPeerPlaylistEditing: (String, Boolean) -> Unit = { _, _ -> },
     likedTracks: List<LikedTrack> = emptyList(),
     likesEnabled: Boolean = false,
     likesLoading: Boolean = false,
@@ -130,7 +131,7 @@ internal fun XoverPanel(
 
                     XoverTab.LIKED -> LikedTracksTab(
                         tracks = likedTracks,
-                        canAdd = state.role() != DeviceRole.CLIENT,
+                        canAdd = state.canEditPlaylist(),
                         likesEnabled = likesEnabled,
                         loading = likesLoading,
                         failed = likesFailed,
@@ -142,6 +143,7 @@ internal fun XoverPanel(
                     XoverTab.STATUS -> StatusTab(
                         state = state,
                         onDisconnectPeer = onDisconnectPeer,
+                        onSetPeerPlaylistEditing = onSetPeerPlaylistEditing,
                     )
 
                     XoverTab.MORE -> MoreTab(
@@ -152,6 +154,7 @@ internal fun XoverPanel(
                         onOpacityChange = { onSettingsChange(settings.copy(opacity = it)) },
                         onDisconnect = onDisconnect,
                         onDisconnectPeer = onDisconnectPeer,
+                        onSetPeerPlaylistEditing = onSetPeerPlaylistEditing,
                         onCollapse = onCollapse,
                         onMinimize = onMinimize,
                     )

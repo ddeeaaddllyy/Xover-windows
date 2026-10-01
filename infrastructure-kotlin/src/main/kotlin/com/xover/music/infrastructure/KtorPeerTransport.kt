@@ -279,7 +279,7 @@ class KtorPeerTransport : PeerTransportPort {
     private fun decode(payload: String): PeerMessage {
         require(payload.toByteArray(Charsets.UTF_8).size <= MAX_SYNC_FRAME_BYTES) { "Sync message is too large" }
         val dto = json.decodeFromString(PeerMessageDto.serializer(), payload)
-        require(dto.protocolVersion == 2) { "Incompatible Xover protocol; update both apps" }
+        require(dto.protocolVersion == 3) { "Incompatible Xover protocol; update both apps" }
         return dto.toDomain()
     }
 
@@ -349,7 +349,8 @@ class KtorPeerTransport : PeerTransportPort {
         playlist = playlist().map { it.toDto() },
         currentTrackIndex = currentTrackIndex(),
         loadId = loadId(),
-        protocolVersion = 2,
+        canEditPlaylist = canEditPlaylist(),
+        protocolVersion = 3,
     )
 
     private fun PeerMessageDto.toDomain(): PeerMessage = PeerMessage(
@@ -365,6 +366,7 @@ class KtorPeerTransport : PeerTransportPort {
         playlist.map { it.toDomain() },
         currentTrackIndex,
         loadId,
+        canEditPlaylist,
     )
 
     private fun PlaylistTrack.toDto(): PlaylistTrackDto = PlaylistTrackDto(
@@ -394,6 +396,7 @@ private data class PeerMessageDto(
     val playlist: List<PlaylistTrackDto> = emptyList(),
     val currentTrackIndex: Int = -1,
     val loadId: String = "",
+    val canEditPlaylist: Boolean = false,
     val protocolVersion: Int = 1,
 )
 

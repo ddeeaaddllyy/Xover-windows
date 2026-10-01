@@ -19,6 +19,8 @@ public record SessionViewState(
     List<PlaylistTrack> playlist,
     int currentTrackIndex,
     List<String> connectedPeerIds,
+    List<String> editablePeerIds,
+    boolean canEditPlaylist,
     String message
 ) {
     public static SessionViewState idle() {
@@ -34,6 +36,8 @@ public record SessionViewState(
             List.of(),
             -1,
             List.of(),
+            List.of(),
+            true,
             "Ready"
         );
     }
@@ -46,6 +50,7 @@ public record SessionViewState(
         playlist = List.copyOf(playlist == null ? List.of() : playlist);
         currentTrackIndex = normalizeCurrentTrackIndex(playlist, currentTrackIndex);
         connectedPeerIds = List.copyOf(connectedPeerIds == null ? List.of() : connectedPeerIds);
+        editablePeerIds = List.copyOf(editablePeerIds == null ? List.of() : editablePeerIds);
         message = message == null ? "" : message;
         positionMillis = Math.max(0L, positionMillis);
         durationMillis = Math.max(0L, durationMillis);
@@ -53,31 +58,31 @@ public record SessionViewState(
     }
 
     public SessionViewState withRole(DeviceRole nextRole) {
-        return new SessionViewState(nextRole, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, message);
+        return new SessionViewState(nextRole, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public SessionViewState withConnectionStatus(ConnectionStatus nextStatus) {
-        return new SessionViewState(role, nextStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, message);
+        return new SessionViewState(role, nextStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public SessionViewState withPlaybackStatus(PlaybackStatus nextStatus) {
-        return new SessionViewState(role, connectionStatus, nextStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, message);
+        return new SessionViewState(role, connectionStatus, nextStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public SessionViewState withTrack(String nextTrackName, long nextDurationMillis) {
-        return new SessionViewState(role, connectionStatus, playbackStatus, nextTrackName, positionMillis, nextDurationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, message);
+        return new SessionViewState(role, connectionStatus, playbackStatus, nextTrackName, positionMillis, nextDurationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public SessionViewState withPosition(long nextPositionMillis) {
-        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, nextPositionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, message);
+        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, nextPositionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public SessionViewState withClockOffset(long nextClockOffsetMillis) {
-        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, nextClockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, message);
+        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, nextClockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public SessionViewState withLocalVolumePercent(int nextLocalVolumePercent) {
-        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, nextLocalVolumePercent, playlist, currentTrackIndex, connectedPeerIds, message);
+        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, nextLocalVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public SessionViewState withPlaylist(List<PlaylistTrack> nextPlaylist, int nextCurrentTrackIndex) {
@@ -89,7 +94,7 @@ public record SessionViewState(
         String nextTrackName = nextTrack == null ? "" : nextTrack.title();
         long nextPositionMillis = sameTrack ? positionMillis : 0L;
         long nextDurationMillis = sameTrack ? durationMillis : 0L;
-        return new SessionViewState(role, connectionStatus, playbackStatus, nextTrackName, nextPositionMillis, nextDurationMillis, clockOffsetMillis, localVolumePercent, safePlaylist, safeIndex, connectedPeerIds, message);
+        return new SessionViewState(role, connectionStatus, playbackStatus, nextTrackName, nextPositionMillis, nextDurationMillis, clockOffsetMillis, localVolumePercent, safePlaylist, safeIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, message);
     }
 
     public PlaylistTrack currentTrack() {
@@ -100,11 +105,19 @@ public record SessionViewState(
     }
 
     public SessionViewState withMessage(String nextMessage) {
-        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, nextMessage);
+        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, canEditPlaylist, nextMessage);
     }
 
     public SessionViewState withConnectedPeers(List<String> nextConnectedPeerIds) {
-        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, nextConnectedPeerIds, message);
+        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, nextConnectedPeerIds, editablePeerIds, canEditPlaylist, message);
+    }
+
+    public SessionViewState withEditablePeers(List<String> nextEditablePeerIds) {
+        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, nextEditablePeerIds, canEditPlaylist, message);
+    }
+
+    public SessionViewState withCanEditPlaylist(boolean nextCanEditPlaylist) {
+        return new SessionViewState(role, connectionStatus, playbackStatus, trackName, positionMillis, durationMillis, clockOffsetMillis, localVolumePercent, playlist, currentTrackIndex, connectedPeerIds, editablePeerIds, nextCanEditPlaylist, message);
     }
 
     private static int normalizeCurrentTrackIndex(List<PlaylistTrack> playlist, int currentTrackIndex) {
