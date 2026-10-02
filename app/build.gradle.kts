@@ -2,6 +2,7 @@ import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.Sync
 import org.gradle.jvm.application.tasks.CreateStartScripts
 import java.io.File
+import java.net.URLClassLoader
 
 plugins {
     application
@@ -228,10 +229,42 @@ val obfuscateReleaseJars = tasks.register<JavaExec>("obfuscateReleaseJars") {
     outputs.file(proguardMappingFile)
 }
 
+val verifyObfuscatedProtocol = tasks.register("verifyObfuscatedProtocol") {
+    group = "verification"
+    description = "Checks protocol enum names and media resolution in obfuscated release jars."
+    dependsOn(obfuscateReleaseJars)
+
+    doLast {
+        val obfuscatedJars = obfuscatedLibsDirectory.get().asFile
+            .listFiles { file -> file.isFile && file.extension == "jar" }.orEmpty().toList()
+        val runtimeJars = installLibDirectory.get().asFile
+            .listFiles { file -> file.isFile && file.extension == "jar" && file.name !in xoverProjectJarNames }
+            .orEmpty().toList()
+        require(obfuscatedJars.size == xoverProjectJarNames.size) {
+            "Expected all Xover project jars in the obfuscated release"
+        }
+        URLClassLoader(
+            (obfuscatedJars + runtimeJars).map { it.toURI().toURL() }.toTypedArray(),
+            ClassLoader.getPlatformClassLoader(),
+        ).use { loader ->
+            val messageType = loader.loadClass("com.xover.music.application.network.MessageType")
+            check(messageType.isEnum) { "Obfuscated MessageType is no longer an enum" }
+            val valueOf = messageType.getMethod("valueOf", String::class.java)
+            listOf("PLAY_AT", "PAUSE", "PLAYLIST_UPDATED", "ROOM_CONTROL_PERMISSION").forEach { name ->
+                val constant = valueOf.invoke(null, name) as Enum<*>
+                check(constant.name == name) { "Obfuscation changed MessageType.$name" }
+            }
+            loader.loadClass("com.xover.music.app.ReleaseRuntimeSmoke")
+                .getMethod("verify")
+                .invoke(null)
+        }
+    }
+}
+
 val obfuscatedInstallDist = tasks.register<Sync>("obfuscatedInstallDist") {
     group = "distribution"
     description = "Installs a local distribution with obfuscated Xover project jars."
-    dependsOn(tasks.named("installDist"), obfuscateReleaseJars)
+    dependsOn(tasks.named("installDist"), verifyObfuscatedProtocol)
 
     from(layout.buildDirectory.dir("install/app")) {
         exclude(xoverProjectJarNames.map { "lib/$it" })
@@ -242,20 +275,71 @@ val obfuscatedInstallDist = tasks.register<Sync>("obfuscatedInstallDist") {
     into(obfuscatedInstallDirectory)
 }
 
+val windowsImageDirectory = layout.buildDirectory.dir("jpackage/Xover")
+val packageObfuscatedWindowsImage = tasks.register<Exec>("packageObfuscatedWindowsImage") {
+    group = "distribution"
+    description = "Packages Xover.exe with a bundled Java 21 runtime."
+    dependsOn(obfuscatedInstallDist)
+    inputs.dir(obfuscatedInstallDirectory.map { it.dir("lib") })
+    inputs.file(rootProject.file("assets/icon/XoverIcon.ico"))
+    outputs.dir(windowsImageDirectory)
+
+    doFirst {
+        require(System.getProperty("os.name").startsWith("Windows")) {
+            "The Windows release must be built on Windows"
+        }
+        val buildRoot = layout.buildDirectory.get().asFile.canonicalFile.toPath()
+        val image = windowsImageDirectory.get().asFile.canonicalFile
+        require(image.toPath().startsWith(buildRoot)) { "Image path is outside the build directory" }
+        delete(image)
+        image.parentFile.mkdirs()
+
+        val library = obfuscatedInstallDirectory.get().asFile.resolve("lib")
+        val javafxModules = listOf("base", "graphics", "media", "swing").map { module ->
+            library.listFiles().orEmpty().singleOrNull {
+                it.name.matches(Regex("javafx-$module-.*-win\\.jar"))
+            } ?: error("Missing Windows JavaFX module: $module")
+        }
+        val packageJdk = javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(21))
+        }.get().metadata.installationPath.asFile
+        val jpackage = File(packageJdk, "bin/jpackage.exe")
+        require(jpackage.isFile) { "JDK 21 with jpackage is required" }
+        commandLine(
+            jpackage.absolutePath,
+            "--type", "app-image",
+            "--name", "Xover",
+            "--app-version", project.version.toString(),
+            "--description", "Synchronized music listening",
+            "--input", library.absolutePath,
+            "--main-jar", "app-${project.version}.jar",
+            "--main-class", "com.xover.music.app.XoverMain",
+            "--module-path", javafxModules.joinToString(File.pathSeparator) { it.absolutePath },
+            "--add-modules", "java.se,javafx.graphics,javafx.media,javafx.swing,jdk.crypto.ec,jdk.localedata,jdk.unsupported",
+            "--java-options", "--enable-native-access=javafx.graphics,javafx.media,javafx.swing",
+            "--icon", rootProject.file("assets/icon/XoverIcon.ico").absolutePath,
+            "--dest", image.parentFile.absolutePath,
+        )
+    }
+}
+
 tasks.register<Zip>("obfuscatedDistZip") {
     group = "distribution"
-    description = "Builds a zip distribution with obfuscated Xover project jars."
-    dependsOn(obfuscatedInstallDist)
+    description = "Builds a portable Windows zip with Xover.exe and a bundled Java runtime."
+    dependsOn(packageObfuscatedWindowsImage)
     archiveFileName.set("xover-${project.version}-obfuscated.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
-    from(obfuscatedInstallDirectory) {
-        into("app")
+    from(windowsImageDirectory) {
+        into("Xover")
     }
+    from(rootProject.file("README.md")) { into("Xover") }
+    from(rootProject.file("LICENSE")) { into("Xover") }
+    from(rootProject.file(".env.example")) { into("Xover") }
 }
 
 tasks.register("releaseObfuscated") {
     group = "distribution"
-    description = "Builds the obfuscated release zip."
+    description = "Builds the portable Windows release with Xover.exe."
     dependsOn(tasks.named("obfuscatedDistZip"))
     dependsOn(rootProject.subprojects.map { "${it.path}:check" })
 }

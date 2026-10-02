@@ -8,6 +8,14 @@
     public static void main(java.lang.String[]);
 }
 
+-keep public class com.xover.music.app.ReleaseRuntimeSmoke {
+    public static void verify();
+}
+
+# Enum names are used by the wire protocol and by Enum.valueOf at runtime.
+# ProGuard must preserve both the enum flag and the original constant names.
+-keep enum com.xover.music.** { *; }
+
 -keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
 
 -optimizationpasses 5

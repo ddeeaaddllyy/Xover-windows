@@ -39,11 +39,11 @@ Scala is intentionally not used yet. The project has no heavy compute problem at
 
 ## Requirements
 
-- JDK 21.
+- JDK 21 for building from source.
 - Windows firewall must allow the selected port for the host app.
 - Both users must be in the same VPN network.
 - The host binds to the entered VPN address. `127.0.0.1` permits only same-PC testing.
-- Distributions currently require an installed JDK 21; a bundled runtime is not included.
+- The Windows release includes its own Java runtime; users do not need to install Java.
 
 ## Run
 
@@ -68,6 +68,11 @@ Build an obfuscated release zip:
 ```
 
 The release zip is written to `app/build/distributions/xover-<version>-obfuscated.zip`.
+Extract the entire zip and double-click `Xover/Xover.exe`. Keep the `app` and `runtime`
+folders beside the executable; copying the `.exe` alone will not work.
+For Yandex Music, copy `Xover/.env.example` to `Xover/.env` and set
+`YANDEX_MUSIC_TOKEN` on every device that plays the track. Direct audio links
+and SoundCloud do not need this token.
 The ProGuard mapping for decoding obfuscated stack traces is written to `app/build/obfuscated-release/mapping.txt`.
 
 ## Friend Test
@@ -146,4 +151,4 @@ Audio is currently handled by JavaFX MediaPlayer. MP3 is the primary target for 
 - Add a connection QR/code screen for faster pairing.
 - Add host-side firewall/port diagnostics.
 - Add VLCJ audio backend.
-- Add packaging with `jpackage`.
+- Add a signed Windows installer for users who prefer installation to the portable zip.

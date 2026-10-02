@@ -138,6 +138,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             return;
         }
 
+        resetFailedConnection();
+
         HostStartupConfig config = null;
         try {
             PeerAddress address = new PeerAddress(advertisedHost, port);
@@ -172,6 +174,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             updateState(previous -> previous.withMessage("Stop hosting before connecting"));
             return;
         }
+
+        resetFailedConnection();
 
         PeerAddress address = null;
         try {
@@ -860,6 +864,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 viewState.connectionStatus() == ConnectionStatus.HOSTING
                     || viewState.connectionStatus() == ConnectionStatus.CONNECTED
             );
+    }
+
+    private void resetFailedConnection() {
+        if (state.role() != DeviceRole.IDLE
+            && (state.connectionStatus() == ConnectionStatus.ERROR
+                || state.connectionStatus() == ConnectionStatus.DISCONNECTED)) {
+            disconnect();
+        }
     }
 
     private boolean isClientActive(SessionViewState viewState) {

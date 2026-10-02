@@ -137,6 +137,10 @@ final class SoundCloudMediaResolver {
     }
 
     private List<String> clientIds(String page) throws IOException {
+        return clientIds(page, scriptUri -> get(scriptUri).body());
+    }
+
+    List<String> clientIds(String page, ScriptLoader scriptLoader) throws IOException {
         List<String> clientIds = new ArrayList<>();
         String cached = cachedClientId.get();
         if (!cached.isBlank()) {
@@ -156,11 +160,19 @@ final class SoundCloudMediaResolver {
             });
         }
 
+        IOException lastScriptFailure = null;
         for (int i = scripts.size() - 1; i >= 0; i--) {
-            String script = get(URI.create(scripts.get(i))).body();
-            addClientIdsFromText(script, clientIds);
+            try {
+                String script = scriptLoader.load(URI.create(scripts.get(i)));
+                addClientIdsFromText(script, clientIds);
+            } catch (IOException ex) {
+                lastScriptFailure = ex;
+            }
         }
 
+        if (clientIds.isEmpty() && lastScriptFailure != null) {
+            throw new IOException("Could not read SoundCloud player scripts", lastScriptFailure);
+        }
         return clientIds;
     }
 
@@ -316,5 +328,10 @@ final class SoundCloudMediaResolver {
     }
 
     private record FetchResult(URI uri, String body) {
+    }
+
+    @FunctionalInterface
+    interface ScriptLoader {
+        String load(URI uri) throws IOException;
     }
 }

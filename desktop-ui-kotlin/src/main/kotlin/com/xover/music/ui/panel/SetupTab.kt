@@ -36,8 +36,8 @@ internal fun SetupTab(
         (state.connectionStatus() == ConnectionStatus.HOSTING || state.connectionStatus() == ConnectionStatus.CONNECTED)
     val clientActive = state.role() == DeviceRole.CLIENT &&
         (state.connectionStatus() == ConnectionStatus.CONNECTING || state.connectionStatus() == ConnectionStatus.CONNECTED)
-    val blockedByClient = state.role() == DeviceRole.CLIENT && !hostActive
-    val blockedByHost = state.role() == DeviceRole.HOST && !clientActive
+    val blockedByClient = clientActive
+    val blockedByHost = hostActive
 
     ScreenIntro("Good music. Same moment.", "A private room for you and your people.")
 

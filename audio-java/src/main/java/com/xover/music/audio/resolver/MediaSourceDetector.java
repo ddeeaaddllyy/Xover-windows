@@ -20,7 +20,7 @@ final class MediaSourceDetector {
 
     static boolean isSoundCloudPage(URI uri) {
         String host = normalizedHost(uri);
-        return host.endsWith("soundcloud.com")
+        return (host.equals("soundcloud.com") || host.endsWith(".soundcloud.com"))
             && !host.startsWith("api.")
             && !host.startsWith("api-v2.");
     }
@@ -46,8 +46,8 @@ final class MediaSourceDetector {
         String[] parts = path.split("/");
         for (int i = 0; i < parts.length - 1; i++) {
             if ("track".equalsIgnoreCase(parts[i])) {
-                String candidate = parts[i + 1].replaceAll("[^0-9]", "");
-                if (!candidate.isBlank()) {
+                String candidate = parts[i + 1];
+                if (!candidate.isBlank() && candidate.chars().allMatch(Character::isDigit)) {
                     return Optional.of(candidate);
                 }
             }

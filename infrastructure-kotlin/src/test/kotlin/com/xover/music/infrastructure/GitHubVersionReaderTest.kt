@@ -12,7 +12,16 @@ class GitHubVersionReaderTest {
     @Test
     fun parsesVersionSectionAndIgnoresFutureSettings() {
         val parsed = VersionTomlParser.parse(
-            "".trimIndent(),
+            """
+            # Values published for the application
+            [versions]
+            current = "1.8.4" # stable
+            latest = "2.0.0-rc1"
+            allow_preview = false
+
+            [release.notes]
+            text = "Later"
+            """.trimIndent(),
         )
         assertEquals("1.8.4", parsed.current())
         assertEquals("2.0.0-rc1", parsed.latest())
@@ -35,11 +44,9 @@ class GitHubVersionReaderTest {
         }
         server.start()
         try {
-            val versions = GitHubVersionReader().read()
+            val versions = GitHubVersionReader(URI.create("http://127.0.0.1:${server.address.port}/version.toml")).read()
             assertEquals("1.8.4", versions.current())
             assertEquals("2.0.0", versions.latest())
-            println(versions.current())
-            println(versions.latest())
         } finally {
             server.stop(0)
         }

@@ -5,6 +5,8 @@ import com.xover.music.application.audio.AudioPlayerPort;
 import com.xover.music.application.common.diagnostics.DefaultErrorReporter;
 import com.xover.music.application.network.*;
 import com.xover.music.application.sync.ClockSynchronizer;
+import com.xover.music.domain.ConnectionStatus;
+import com.xover.music.domain.DeviceRole;
 import com.xover.music.domain.PlaybackStatus;
 import com.xover.music.domain.PlaylistTrack;
 import org.junit.jupiter.api.AfterEach;
@@ -498,6 +500,42 @@ final class ListeningSessionServiceTest {
     }
 
     @Test
+    void canHostAfterFailedClientConnectionAndClosesOldTransport() {
+        service.connectToHost("127.0.0.1", 47321);
+        service.onTransportError("Connection failed", new IllegalStateException());
+
+        service.startHost("127.0.0.1", 47321);
+
+        assertEquals(1, transport.disconnects);
+        assertEquals(DeviceRole.HOST, service.currentState().role());
+        assertEquals(ConnectionStatus.HOSTING, service.currentState().connectionStatus());
+    }
+
+    @Test
+    void canConnectAfterFailedHostAndClosesOldTransport() {
+        service.startHost("127.0.0.1", 47321);
+        service.onTransportError("Host WebSocket failed", new IllegalStateException());
+
+        service.connectToHost("127.0.0.2", 47321);
+
+        assertEquals(1, transport.disconnects);
+        assertEquals(DeviceRole.CLIENT, service.currentState().role());
+        assertEquals(ConnectionStatus.CONNECTING, service.currentState().connectionStatus());
+    }
+
+    @Test
+    void canReconnectAfterHostDisconnectsAndClosesOldClient() {
+        connectClient();
+        service.onPeerDisconnected("host");
+
+        service.connectToHost("127.0.0.2", 47321);
+
+        assertEquals(1, transport.disconnects);
+        assertEquals(DeviceRole.CLIENT, service.currentState().role());
+        assertEquals(ConnectionStatus.CONNECTING, service.currentState().connectionStatus());
+    }
+
+    @Test
     void nextTrackKeepsPlayingButWaitsForNewReadiness() {
         hostWithTrack("friend");
         service.addTrackUrl("https://example.com/second.mp3");
@@ -599,6 +637,7 @@ final class ListeningSessionServiceTest {
         java.util.function.Consumer<PeerMessage> onBroadcast = message -> { };
         final List<String> directed = new ArrayList<>();
         final List<PeerMessage> directedMessages = new ArrayList<>();
+        int disconnects;
         public void setListener(PeerTransportListener listener) { }
         public void startHost(HostStartupConfig config) { }
         public void connect(PeerAddress address) { }
@@ -606,7 +645,7 @@ final class ListeningSessionServiceTest {
         public void sendToPeer(String peerId, PeerMessage message) { directed.add(peerId); directedMessages.add(message); }
         public void broadcast(PeerMessage message) { broadcasts.add(message); onBroadcast.accept(message); }
         public void disconnectPeer(String peerId) { }
-        public void disconnect() { }
+        public void disconnect() { disconnects++; }
         public void close() { }
         long playCount() { return broadcasts.stream().filter(m -> m.type() == MessageType.PLAY_AT).count(); }
         long readyCount() { return sent.stream().filter(m -> m.type() == MessageType.TRACK_READY).count(); }

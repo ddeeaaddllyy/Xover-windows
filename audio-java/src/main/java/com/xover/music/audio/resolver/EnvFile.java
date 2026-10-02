@@ -1,6 +1,7 @@
 package com.xover.music.audio.resolver;
 
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,6 +46,11 @@ final class EnvFile {
 
     private static Iterable<Path> candidateFiles() {
         Map<Path, Path> candidates = new java.util.LinkedHashMap<>();
+        try {
+            addWithParents(candidates, Path.of(EnvFile.class.getProtectionDomain().getCodeSource().getLocation().toURI()));
+        } catch (URISyntaxException | SecurityException ignored) {
+            // Other launchers can still provide app.home or a working directory.
+        }
         addWithParents(candidates, Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize());
 
         String appHome = System.getProperty("app.home", "");

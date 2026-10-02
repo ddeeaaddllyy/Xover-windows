@@ -18,7 +18,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Comparator;
-import java.util.Locale;
 import java.util.Optional;
 
 final class YandexMusicMediaResolver {
@@ -55,27 +54,21 @@ final class YandexMusicMediaResolver {
         }
     }
 
-    private Optional<JsonNode> chooseDownloadInfo(JsonNode variants) {
+    Optional<JsonNode> chooseDownloadInfo(JsonNode variants) {
         if (!variants.isArray() || variants.isEmpty()) {
             return Optional.empty();
         }
 
         return stream(variants)
             .filter(variant -> !variant.path("preview").asBoolean(false))
-            .max(Comparator
-                .comparingInt(this::codecScore)
-                .thenComparingInt(variant -> variant.path("bitrateInKbps").asInt(0)));
+            .filter(variant -> "mp3".equalsIgnoreCase(variant.path("codec").asText("")))
+            .max(Comparator.comparingInt(variant -> variant.path("bitrateInKbps").asInt(0)));
     }
 
     private java.util.stream.Stream<JsonNode> stream(JsonNode array) {
         java.util.List<JsonNode> nodes = new java.util.ArrayList<>();
         array.forEach(nodes::add);
         return nodes.stream();
-    }
-
-    private int codecScore(JsonNode variant) {
-        String codec = variant.path("codec").asText("").toLowerCase(Locale.ROOT);
-        return "mp3".equals(codec) ? 2 : 1;
     }
 
     private String directMp3Url(String xml) throws IOException {

@@ -6,11 +6,16 @@ import com.xover.music.application.common.diagnostics.ErrorReporter
 import com.xover.music.application.network.*
 import com.xover.music.application.session.ListeningSessionService
 import com.xover.music.application.sync.ClockSynchronizer
+import com.xover.music.domain.ConnectionStatus
+import com.xover.music.domain.DeviceRole
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Timeout
 import java.net.ServerSocket
 import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -20,6 +25,30 @@ import java.util.concurrent.TimeUnit
 
 @Timeout(30)
 class KtorPeerTransportTest {
+    @Test
+    fun failedClientConnectionCanSwitchToHosting() {
+        val session = ListeningSessionService(
+            TestAudio(), KtorPeerTransport(), System::currentTimeMillis,
+            Executors.newScheduledThreadPool(2), ClockSynchronizer(),
+            ErrorReporter { _, _ -> },
+        )
+        try {
+            session.connectToHost("127.0.0.1", freePort())
+            assertTrue(awaitState(session) { it.connectionStatus() == ConnectionStatus.ERROR })
+
+            val hostPort = freePort()
+            session.startHost("127.0.0.1", hostPort)
+            assertTrue(awaitState(session) {
+                it.role() == DeviceRole.HOST && it.connectionStatus() == ConnectionStatus.HOSTING
+            })
+            val request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:$hostPort/health")).GET().build()
+            val response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString())
+            assertEquals(200, response.statusCode())
+        } finally {
+            session.close()
+        }
+    }
+
     @Test
     fun preservesCommandOrderAndAssociatesReadinessWithTheSender() {
         val host = KtorPeerTransport()
