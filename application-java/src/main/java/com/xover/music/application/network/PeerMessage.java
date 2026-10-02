@@ -21,7 +21,7 @@ public record PeerMessage(
     List<PlaylistTrack> playlist,
     int currentTrackIndex,
     String loadId,
-    boolean canEditPlaylist
+    boolean canControlRoom
 ) {
     public PeerMessage {
         playlist = List.copyOf(playlist == null ? List.of() : playlist);
@@ -64,8 +64,8 @@ public record PeerMessage(
         return new PeerMessage(MessageType.TIME_SYNC_RESPONSE, nonce, "", "", 0L, 0L, clientSentAtMillis, hostReceivedAtMillis, hostSentAtMillis, List.of(), -1, "", false);
     }
 
-    public static PeerMessage playlistEditPermission(boolean allowed) {
-        return new PeerMessage(MessageType.PLAYLIST_EDIT_PERMISSION, newNonce(), "", "", 0L, 0L, 0L, 0L, 0L, List.of(), -1, "", allowed);
+    public static PeerMessage roomControlPermission(boolean allowed) {
+        return new PeerMessage(MessageType.ROOM_CONTROL_PERMISSION, newNonce(), "", "", 0L, 0L, 0L, 0L, 0L, List.of(), -1, "", allowed);
     }
 
     public static PeerMessage playlistEditRequest(MessageType type, String trackId, String value, int toIndex) {
@@ -76,6 +76,16 @@ public record PeerMessage(
         }
         return new PeerMessage(type, newNonce(), value == null ? "" : value, trackId == null ? "" : trackId,
             0L, 0L, 0L, 0L, 0L, List.of(), toIndex, "", false);
+    }
+
+    public static PeerMessage playbackRequest(MessageType type, long positionMillis) {
+        if (type != MessageType.PLAY_REQUEST && type != MessageType.PAUSE_REQUEST
+            && type != MessageType.SEEK_REQUEST && type != MessageType.NEXT_TRACK_REQUEST
+            && type != MessageType.BACK_TRACK_REQUEST) {
+            throw new IllegalArgumentException("Not a playback request: " + type);
+        }
+        return new PeerMessage(type, newNonce(), "", "", positionMillis, 0L, 0L, 0L, 0L,
+            List.of(), -1, "", false);
     }
 
     private static String newNonce() {

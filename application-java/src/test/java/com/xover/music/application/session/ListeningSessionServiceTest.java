@@ -367,6 +367,109 @@ final class ListeningSessionServiceTest {
     }
 
     @Test
+    void hostAppliesOnlyAuthorizedPlaylistRequestsAndRevokesAccess() {
+        hostWithTrack("friend", "other");
+        String trackId = service.currentState().currentTrack().id();
+        PeerMessage add = PeerMessage.playlistEditRequest(MessageType.PLAYLIST_ADD_REQUEST, "", "https://example.com/second.mp3", -1);
+        service.onMessage("friend", add);
+        assertEquals(1, service.currentState().playlist().size());
+
+        service.setPeerRoomControl("friend", true);
+        assertEquals(List.of("friend"), service.currentState().controllerPeerIds());
+        assertTrue(transport.directedMessages.getLast().canControlRoom());
+        service.onMessage("other", add);
+        assertEquals(1, service.currentState().playlist().size());
+        service.onMessage("friend", add);
+        assertEquals(2, service.currentState().playlist().size());
+        service.onMessage("friend", PeerMessage.playlistEditRequest(MessageType.PLAYLIST_RENAME_REQUEST, trackId, "Shared title", -1));
+        assertEquals("Shared title", service.currentState().playlist().getFirst().title());
+        service.onMessage("friend", PeerMessage.playlistEditRequest(MessageType.PLAYLIST_MOVE_REQUEST, trackId, "", 1));
+        assertEquals(trackId, service.currentState().playlist().get(1).id());
+        service.onMessage("friend", PeerMessage.playlistEditRequest(MessageType.PLAYLIST_REMOVE_REQUEST, trackId, "", -1));
+        assertEquals(1, service.currentState().playlist().size());
+
+        service.setPeerRoomControl("friend", false);
+        assertTrue(service.currentState().controllerPeerIds().isEmpty());
+        assertFalse(transport.directedMessages.getLast().canControlRoom());
+        service.onMessage("friend", add);
+        assertEquals(1, service.currentState().playlist().size());
+        service.setPeerRoomControl("friend", true);
+        service.onPeerDisconnected("friend");
+        assertTrue(service.currentState().controllerPeerIds().isEmpty());
+    }
+
+    @Test
+    void clientSendsEditsOnlyWhileHostPermissionIsActive() {
+        connectClient();
+        service.onMessage("host", remotePlaylist("load-1"));
+        service.addTrackUrl("https://example.com/second.mp3");
+        assertTrue(transport.sent.isEmpty());
+        service.onMessage("host", PeerMessage.roomControlPermission(true));
+        assertTrue(service.currentState().canControlRoom());
+        service.addTrackUrl("https://example.com/second.mp3");
+        assertEquals(MessageType.PLAYLIST_ADD_REQUEST, transport.sent.getLast().type());
+        service.renameTrack(0, "Shared title");
+        assertEquals(MessageType.PLAYLIST_RENAME_REQUEST, transport.sent.getLast().type());
+        assertEquals("track-1", transport.sent.getLast().mediaUri());
+        service.onMessage("host", PeerMessage.roomControlPermission(false));
+        int sentBefore = transport.sent.size();
+        service.removeTrackAt(0);
+        assertEquals(sentBefore, transport.sent.size());
+        assertFalse(service.currentState().canControlRoom());
+    }
+
+    @Test
+    void onlyAuthorizedListenerCanControlPlaybackAndCannotGrantAccess() {
+        hostWithTrack("friend", "other");
+        audio.ready();
+        service.onMessage("friend", PeerMessage.trackReady(audio.loadId));
+        service.onMessage("other", PeerMessage.trackReady(audio.loadId));
+        PeerMessage play = PeerMessage.playbackRequest(MessageType.PLAY_REQUEST, 0L);
+        service.onMessage("friend", play);
+        assertEquals(0, transport.playCount());
+        service.setPeerRoomControl("friend", true);
+        service.onMessage("other", play);
+        assertEquals(0, transport.playCount());
+        service.onMessage("friend", play);
+        assertEquals(1, transport.playCount());
+        service.onMessage("other", PeerMessage.playbackRequest(MessageType.PAUSE_REQUEST, 0L));
+        assertEquals(MessageType.PLAY_AT, transport.broadcasts.getLast().type());
+        service.onMessage("friend", PeerMessage.playbackRequest(MessageType.PAUSE_REQUEST, 0L));
+        assertEquals(MessageType.PAUSE, transport.broadcasts.getLast().type());
+        service.onMessage("friend", PeerMessage.playbackRequest(MessageType.SEEK_REQUEST, 4_000L));
+        assertEquals(MessageType.SEEK, transport.broadcasts.getLast().type());
+        assertEquals(4_000L, transport.broadcasts.getLast().positionMillis());
+        service.onMessage("friend", PeerMessage.roomControlPermission(true));
+        assertEquals(List.of("friend"), service.currentState().controllerPeerIds());
+        service.setPeerRoomControl("friend", false);
+        int broadcasts = transport.broadcasts.size();
+        service.onMessage("friend", play);
+        assertEquals(broadcasts, transport.broadcasts.size());
+    }
+
+    @Test
+    void clientPlaybackRequestsRequireHostPermission() {
+        connectClient();
+        service.onMessage("host", remotePlaylist("load-1"));
+        service.play();
+        assertTrue(transport.sent.isEmpty());
+        service.onMessage("host", PeerMessage.roomControlPermission(true));
+        service.play();
+        assertEquals(MessageType.PLAY_REQUEST, transport.sent.getLast().type());
+        service.pause();
+        assertEquals(MessageType.PAUSE_REQUEST, transport.sent.getLast().type());
+        service.seek(1_234L);
+        assertEquals(MessageType.SEEK_REQUEST, transport.sent.getLast().type());
+        assertEquals(1_234L, transport.sent.getLast().positionMillis());
+        service.nextTrack();
+        assertEquals(MessageType.NEXT_TRACK_REQUEST, transport.sent.getLast().type());
+        service.backTrack();
+        assertEquals(MessageType.BACK_TRACK_REQUEST, transport.sent.getLast().type());
+        service.setPeerRoomControl("other", true);
+        assertTrue(service.currentState().controllerPeerIds().isEmpty());
+    }
+
+    @Test
     void seekDuringPlaybackPausesAndSchedulesTheNewPositionForEveryone() {
         hostWithTrack("friend");
         audio.ready();
@@ -426,49 +529,6 @@ final class ListeningSessionServiceTest {
         assertEquals(1, service.currentState().currentTrackIndex());
         assertEquals(lastLoad, audio.loadId);
         assertEquals(0, audio.plays);
-    }
-
-    @Test
-    void stopRewindsEveryoneAndDoesNotResume() {
-        hostWithTrack();
-        audio.ready();
-        service.play();
-        scheduler.advance(750);
-        audio.position = Duration.ofSeconds(12);
-        service.stopPlayback();
-        scheduler.advance(1_000);
-        assertEquals(Duration.ZERO, audio.position);
-        assertEquals(0, service.currentState().positionMillis());
-        assertEquals(PlaybackStatus.PAUSED, service.currentState().playbackStatus());
-        assertEquals(MessageType.SEEK, transport.broadcasts.getLast().type());
-        assertEquals(0, transport.broadcasts.getLast().positionMillis());
-        assertEquals(1, audio.plays);
-    }
-
-    @Test
-    void stopCancelsWaitingAndScheduledPlayback() {
-        hostWithTrack();
-        service.play();
-        service.stopPlayback();
-        audio.ready();
-        scheduler.advance(1_000);
-        assertEquals(0, audio.plays);
-        service.play();
-        service.stopPlayback();
-        scheduler.advance(1_000);
-        assertEquals(0, audio.plays);
-    }
-
-    @Test
-    void compactPlaybackActionsCannotControlAClientSession() {
-        readyClient();
-        int pauses = audio.pauses;
-        String load = audio.loadId;
-        service.nextTrack();
-        service.stopPlayback();
-        assertEquals(load, audio.loadId);
-        assertEquals(pauses, audio.pauses);
-        assertEquals(0, transport.playCount());
     }
 
     @Test
@@ -538,11 +598,12 @@ final class ListeningSessionServiceTest {
         final List<PeerMessage> broadcasts = new ArrayList<>();
         java.util.function.Consumer<PeerMessage> onBroadcast = message -> { };
         final List<String> directed = new ArrayList<>();
+        final List<PeerMessage> directedMessages = new ArrayList<>();
         public void setListener(PeerTransportListener listener) { }
         public void startHost(HostStartupConfig config) { }
         public void connect(PeerAddress address) { }
         public void send(PeerMessage message) { sent.add(message); }
-        public void sendToPeer(String peerId, PeerMessage message) { directed.add(peerId); }
+        public void sendToPeer(String peerId, PeerMessage message) { directed.add(peerId); directedMessages.add(message); }
         public void broadcast(PeerMessage message) { broadcasts.add(message); onBroadcast.accept(message); }
         public void disconnectPeer(String peerId) { }
         public void disconnect() { }

@@ -15,6 +15,8 @@ import com.xover.music.application.playlist.TrackTitleLookup;
 import com.xover.music.infrastructure.KtorPeerTransport;
 import com.xover.music.infrastructure.SqliteLikedTrackRepository;
 import com.xover.music.application.library.LikedTracksService;
+import com.xover.music.application.version.RemoteVersionPort;
+import com.xover.music.infrastructure.GitHubVersionReader;
 import java.nio.file.Path;
 import dagger.Module;
 import dagger.Provides;
@@ -31,6 +33,12 @@ public final class AppModule {
         return new LikedTracksService(new SqliteLikedTrackRepository(
             Path.of(System.getProperty("user.home"), ".xover", "liked-tracks.db")
         ));
+    }
+
+    @Provides
+    @Singleton
+    RemoteVersionPort provideRemoteVersionPort() {
+        return new GitHubVersionReader();
     }
 
     @Provides

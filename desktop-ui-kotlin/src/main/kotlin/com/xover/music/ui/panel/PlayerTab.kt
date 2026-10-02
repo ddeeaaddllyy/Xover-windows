@@ -45,7 +45,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.xover.music.domain.DeviceRole
 import com.xover.music.domain.PlaybackStatus
 import com.xover.music.domain.PlaylistTrack
 import com.xover.music.domain.SessionViewState
@@ -71,7 +70,7 @@ internal fun PlayerTab(
     onLocalVolumeChange: (Int) -> Unit,
 ) {
     val duration = max(1L, state.durationMillis())
-    val canEditPlaylist = state.canEditPlaylist()
+    val canControlRoom = state.canControlRoom()
     var trackUrl by remember { mutableStateOf("") }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var seeking by remember { mutableStateOf(false) }
@@ -126,7 +125,7 @@ internal fun PlayerTab(
                 onValueChange = { seeking = true; sliderPosition = it },
                 onValueChangeFinished = { onSeek(sliderPosition.toLong()); seeking = false },
                 valueRange = 0f..duration.toFloat(),
-                enabled = state.role() == DeviceRole.HOST && state.durationMillis() > 0L,
+                enabled = state.canControlRoom() && state.durationMillis() > 0L,
                 modifier = Modifier.fillMaxWidth().height(26.dp),
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -138,7 +137,7 @@ internal fun PlayerTab(
             text = when { state.playbackStatus() == PlaybackStatus.WAITING -> "Cancel scheduled start"
                 playing -> "Pause playback"; else -> "Play record" },
             onClick = if (playing) onPause else onPlay,
-            enabled = state.role() == DeviceRole.HOST && state.currentTrack() != null && state.playbackStatus() != PlaybackStatus.ERROR,
+            enabled = state.canControlRoom() && state.currentTrack() != null && state.playbackStatus() != PlaybackStatus.ERROR,
             modifier = Modifier.fillMaxWidth(),
         )
         Text(state.message(), color = SecondaryText, style = MaterialTheme.typography.caption,
@@ -156,15 +155,15 @@ internal fun PlayerTab(
     }
     Section("QUEUE / ${state.playlist().size.toString().padStart(2, '0')}") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            CompactUrlField(trackUrl, { trackUrl = it }, "Paste a track link", Modifier.weight(1f), canEditPlaylist)
+            CompactUrlField(trackUrl, { trackUrl = it }, "Paste a track link", Modifier.weight(1f), canControlRoom)
             SoftButton("Add", {
                 val next = trackUrl.trim()
                 if (next.isNotBlank()) { onAddTrackUrl(next); trackUrl = "" }
-            }, Modifier.width(56.dp), enabled = canEditPlaylist && trackUrl.isNotBlank())
+            }, Modifier.width(56.dp), enabled = canControlRoom && trackUrl.isNotBlank())
         }
         PlaylistEditor(
             tracks = state.playlist(), likedUrls = likedUrls, likesEnabled = likesEnabled,
-            onToggleLike = onToggleLike, currentTrackIndex = state.currentTrackIndex(), canEdit = canEditPlaylist,
+            onToggleLike = onToggleLike, currentTrackIndex = state.currentTrackIndex(), canEdit = canControlRoom,
             onSelectTrack = onSelectTrack, onRemoveTrack = onRemoveTrack, onMoveTrack = onMoveTrack, onAddTrackUrl = onAddTrackUrl,
             onRenameTrack = onRenameTrack,
         )

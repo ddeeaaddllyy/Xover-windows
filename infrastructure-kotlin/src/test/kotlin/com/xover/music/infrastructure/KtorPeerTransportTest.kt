@@ -51,6 +51,15 @@ class KtorPeerTransportTest {
             val ready = PeerMessage.trackReady("load-1")
             client.send(ready)
             assertEquals(peerId to ready, replies.poll(5, TimeUnit.SECONDS))
+            val permission = PeerMessage.roomControlPermission(true)
+            host.sendToPeer(peerId, permission)
+            assertEquals(permission, received.poll(5, TimeUnit.SECONDS))
+            val edit = PeerMessage.playlistEditRequest(MessageType.PLAYLIST_RENAME_REQUEST, "track-1", "New title", -1)
+            client.send(edit)
+            assertEquals(peerId to edit, replies.poll(5, TimeUnit.SECONDS))
+            val seek = PeerMessage.playbackRequest(MessageType.SEEK_REQUEST, 2_500)
+            client.send(seek)
+            assertEquals(peerId to seek, replies.poll(5, TimeUnit.SECONDS))
             assertTrue(errors.isEmpty(), errors.toString())
         } finally {
             client.close()
@@ -153,6 +162,51 @@ class KtorPeerTransportTest {
             clientAudio.ready()
             assertNotNull(hostAudio.playEvents.poll(5, TimeUnit.SECONDS))
             assertNotNull(clientAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            assertTrue(errors.isEmpty(), errors.toString())
+        } finally {
+            client.close()
+            host.close()
+        }
+    }
+
+    @Test
+    fun hostPermissionLetsOneClientEditTheSharedPlaylist() {
+        val errors = CopyOnWriteArrayList<Throwable>()
+        fun service(audio: TestAudio) = ListeningSessionService(
+            audio, KtorPeerTransport(), System::currentTimeMillis,
+            Executors.newScheduledThreadPool(2), ClockSynchronizer(),
+            ErrorReporter { _, cause -> errors.add(cause) },
+        )
+        val hostAudio = TestAudio()
+        val clientAudio = TestAudio()
+        val host = service(hostAudio)
+        val client = service(clientAudio)
+        try {
+            host.addTrackUrl("https://example.com/first.mp3")
+            val port = freePort()
+            host.startHost("127.0.0.1", port)
+            client.connectToHost("127.0.0.1", port)
+            assertTrue(awaitState(host) { it.connectedPeerIds().size == 1 })
+            assertTrue(awaitState(client) { it.playlist().size == 1 && !it.canControlRoom() })
+            val peerId = host.currentState().connectedPeerIds().single()
+            host.setPeerRoomControl(peerId, true)
+            assertTrue(awaitState(client) { it.canControlRoom() })
+            client.addTrackUrl("https://example.com/second.mp3")
+            assertTrue(awaitState(host) { it.playlist().size == 2 })
+            assertTrue(awaitState(client) { it.playlist().size == 2 })
+            client.renameTrack(1, "Shared title")
+            assertTrue(awaitState(host) { it.playlist().getOrNull(1)?.title() == "Shared title" })
+            hostAudio.ready()
+            clientAudio.ready()
+            client.play()
+            assertNotNull(hostAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            assertNotNull(clientAudio.playEvents.poll(5, TimeUnit.SECONDS))
+            client.pause()
+            assertTrue(awaitState(host) { it.playbackStatus() == com.xover.music.domain.PlaybackStatus.PAUSED })
+            client.seek(1_000)
+            assertTrue(awaitState(host) { it.positionMillis() == 1_000L })
+            host.setPeerRoomControl(peerId, false)
+            assertTrue(awaitState(client) { !it.canControlRoom() })
             assertTrue(errors.isEmpty(), errors.toString())
         } finally {
             client.close()

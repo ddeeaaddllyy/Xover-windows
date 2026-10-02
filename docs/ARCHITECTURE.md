@@ -46,14 +46,17 @@ Important classes:
 ### `infrastructure-kotlin`
 
 Implements `PeerTransportPort` with Ktor.
+`GitHubVersionReader` implements the version port. It fetches the repository's
+`version.toml` and parses `[versions].current` and `[versions].latest`; the UI
+displays them without starting an update.
 
 Host mode:
 
 - starts an embedded Ktor server;
 - accepts WebSocket peers at `/sync`.
 - broadcasts playlist links and playback commands.
-- grants playlist editing to individual connected peers; the application layer
-  checks each edit request against its WebSocket sender before changing the queue.
+- grants room control to individual connected peers; the application layer checks
+  playlist and playback requests against each WebSocket sender before applying them.
 
 Client mode:
 

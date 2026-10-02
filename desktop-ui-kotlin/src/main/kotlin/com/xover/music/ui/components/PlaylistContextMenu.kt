@@ -243,7 +243,7 @@ private fun TrackContextMenuHeader() {
 }
 
 @Composable
-private fun TrackContextMenuItem(
+internal fun TrackContextMenuItem(
     symbol: String,
     title: String,
     caption: String,

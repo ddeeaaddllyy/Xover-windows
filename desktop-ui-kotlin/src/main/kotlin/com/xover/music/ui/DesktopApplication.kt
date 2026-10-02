@@ -16,10 +16,13 @@ import com.xover.music.application.common.diagnostics.ErrorReporter
 import com.xover.music.application.session.ListeningSessionService
 import com.xover.music.domain.PlaybackStatus
 import com.xover.music.application.library.LikedTracksService
+import com.xover.music.application.version.RemoteVersionPort
+import com.xover.music.application.version.RemoteVersions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
 
@@ -28,6 +31,7 @@ class DesktopApplication(
     private val errorEvents: ErrorEventSource,
     private val errorReporter: ErrorReporter,
     private val likedTracksService: LikedTracksService,
+    private val remoteVersionPort: RemoteVersionPort,
 ) {
     fun start() = application {
         val settingsStore = remember { UiSettingsStore() }
@@ -50,6 +54,26 @@ class DesktopApplication(
             LikedTracksState(likedTracksService, errorReporter, scope, sessionDispatcher)
         }
         LaunchedEffect(Unit) { likedTracks.refresh() }
+        var remoteVersions by remember { mutableStateOf<RemoteVersions?>(null) }
+        var versionStatus by remember { mutableStateOf("Loading versions…") }
+        var versionLoading by remember { mutableStateOf(false) }
+        val refreshVersions: () -> Unit = {
+            if (!closing && !versionLoading) scope.launch {
+                versionLoading = true
+                versionStatus = "Loading versions…"
+                try {
+                    remoteVersions = withContext(Dispatchers.IO) { remoteVersionPort.read() }
+                    versionStatus = ""
+                } catch (ex: CancellationException) {
+                    throw ex
+                } catch (ex: Exception) {
+                    versionStatus = "Could not load version.toml: ${ex.message ?: "unknown error"}"
+                } finally {
+                    versionLoading = false
+                }
+            }
+        }
+        LaunchedEffect(Unit) { refreshVersions() }
         val perform: (String, () -> Unit) -> Unit = { operation, action ->
             if (!closing) scope.launch(sessionDispatcher) { reportUiFailure(errorReporter, operation, action) }
         }
@@ -166,6 +190,10 @@ class DesktopApplication(
                             onToggleLike = { url, title -> if (!closing) likedTracks.toggle(url, title) },
                             awtWindow = window,
                             settings = settings,
+                            remoteVersions = remoteVersions,
+                            versionStatus = versionStatus,
+                            versionLoading = versionLoading,
+                            onRefreshVersions = refreshVersions,
                             onSettingsChange = { settings = it },
                             selectedTab = selectedTab,
                             onTabSelected = { selectedTab = it },
@@ -239,9 +267,9 @@ class DesktopApplication(
                                     sessionService.disconnectPeer(peerId)
                                 }
                             },
-                            onSetPeerPlaylistEditing = { peerId, allowed ->
+                            onSetPeerRoomControl = { peerId, allowed ->
                                 perform("Change playlist editing permission") {
-                                    sessionService.setPeerPlaylistEditing(peerId, allowed)
+                                    sessionService.setPeerRoomControl(peerId, allowed)
                                 }
                             },
                         )

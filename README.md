@@ -31,7 +31,7 @@ reporting readiness. **Pause** cancels the request. A loading error, disconnect,
 or two-minute wait timeout cancels automatic start. Select a failed track again to reload it.
 Joining an active session pauses playback until the new listener is ready.
 
-Both sides must use protocol version 3; older builds are incompatible.
+Both sides must use protocol version 4; older builds are incompatible.
 Readiness means JavaFX has prepared the media for playback, not that the entire file has been
 downloaded. Streaming interruptions and long-term clock drift remain possible.
 
@@ -81,6 +81,13 @@ The ProGuard mapping for decoding obfuscated stack traces is written to `app/bui
 7. Client enters the host VPN IP and the same port.
 8. Client clicks `Connect`.
 9. After the client loads the selected URL, host controls `Play`, `Pause`, and seek.
+10. Host right-clicks a listener in `Status` or `More` to grant room control. That
+    listener can edit the playlist and control playback, but cannot grant access to
+    others. The same menu can remove access or kick the listener.
+
+`version.toml` in the repository root publishes the current and latest versions.
+The app reads it from GitHub on startup and on request in `More`. This only displays
+the values; it does not initiate an update.
 
 Quick connection check from the client PC after the host clicks `Start Host`:
 

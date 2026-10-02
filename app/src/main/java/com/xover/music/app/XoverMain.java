@@ -17,7 +17,8 @@ public final class XoverMain {
             component.listeningSessionService(),
             component.errorEventSource(),
             errorReporter,
-            component.likedTracksService()
+            component.likedTracksService(),
+            component.remoteVersionPort()
         ).start();
     }
 }

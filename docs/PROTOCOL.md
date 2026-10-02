@@ -1,7 +1,7 @@
 # Xover Protocol
 
-Transport is WebSocket JSON over Ktor. This revision uses **protocol version 3**;
-all peers must update together. Incoming messages without `protocolVersion: 3`
+Transport is WebSocket JSON over Ktor. This revision uses **protocol version 4**;
+all peers must update together. Incoming messages without `protocolVersion: 4`
 are rejected. Outbound frames are bounded to 64 KiB and queued in order per peer.
 
 Default host port: 47321
@@ -14,7 +14,7 @@ WS  /sync
 
 ```json
 {
-  "protocolVersion": 3,
+  "protocolVersion": 4,
   "loadId": "track-load-uuid",
   "type": "PLAY_AT",
   "nonce": "uuid",
@@ -33,19 +33,19 @@ WS  /sync
     }
   ],
   "currentTrackIndex": 0,
-  "canEditPlaylist": false
+  "canControlRoom": false
 }
 ```
 
 All fields are present to keep parsing simple. Message type decides which fields matter.
 
-## Playlist editing permissions
+## Room control permissions
 
-The host grants or removes editing access for each connected WebSocket peer. New peers
+The host grants or removes room control for each connected WebSocket peer. New peers
 start without access, and access ends on disconnect. The host sends
-`PLAYLIST_EDIT_PERMISSION` directly to that peer with `canEditPlaylist`. The client
-uses it to enable playlist controls, while the host checks every edit request against
-the actual WebSocket sender. Playback controls remain host-only.
+`ROOM_CONTROL_PERMISSION` directly to that peer with `canControlRoom`. The client
+uses it to enable playlist and playback controls, while the host checks every request
+against the actual WebSocket sender. Only the host can grant or remove access.
 
 An authorized client may send `PLAYLIST_ADD_REQUEST` (`trackName` contains a URL),
 `PLAYLIST_REMOVE_REQUEST`, `PLAYLIST_MOVE_REQUEST`, `PLAYLIST_RENAME_REQUEST`, or
@@ -54,6 +54,12 @@ An authorized client may send `PLAYLIST_ADD_REQUEST` (`trackName` contains a URL
 destination index for moves. The host validates and applies each request, then
 broadcasts the resulting `PLAYLIST_UPDATED` to everyone. Requests from peers without
 editing access are ignored.
+
+An authorized client may also send `PLAY_REQUEST`, `PAUSE_REQUEST`, `SEEK_REQUEST`,
+`NEXT_TRACK_REQUEST`, and `BACK_TRACK_REQUEST`. `SEEK_REQUEST` carries the desired
+position in `positionMillis`. The host applies the existing synchronized playback
+workflow and broadcasts the resulting commands. Requests from peers without room
+control are ignored.
 
 ## Message Types
 

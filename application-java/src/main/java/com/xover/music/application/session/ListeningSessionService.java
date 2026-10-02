@@ -148,8 +148,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 .withRole(DeviceRole.HOST)
                 .withConnectionStatus(ConnectionStatus.HOSTING)
                 .withConnectedPeers(List.of())
-                .withEditablePeers(List.of())
-                .withCanEditPlaylist(true)
+                .withControllerPeers(List.of())
+                .withCanControlRoom(true)
                 .withMessage("Hosting on port " + port)
             );
 
@@ -187,8 +187,8 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                     .withConnectionStatus(ConnectionStatus.CONNECTING)
                     .withPlaybackStatus(PlaybackStatus.STOPPED)
                     .withConnectedPeers(List.of())
-                    .withEditablePeers(List.of())
-                    .withCanEditPlaylist(false)
+                    .withControllerPeers(List.of())
+                    .withCanControlRoom(false)
                     .withMessage("Connecting to " + host + ":" + port)
                 );
             }
@@ -202,7 +202,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
     public synchronized void addTrackUrl(String sourceUrl) {
         if (state.role() == DeviceRole.CLIENT) {
-            if (state.canEditPlaylist()) {
+            if (state.canControlRoom()) {
                 transport.send(PeerMessage.playlistEditRequest(MessageType.PLAYLIST_ADD_REQUEST, "", sourceUrl, -1));
             } else {
                 updateState(previous -> previous.withMessage("Host has not allowed playlist editing"));
@@ -328,8 +328,12 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     public synchronized void play() {
+        if (state.role() == DeviceRole.CLIENT && state.canControlRoom()) {
+            transport.send(PeerMessage.playbackRequest(MessageType.PLAY_REQUEST, 0L));
+            return;
+        }
         if (state.role() != DeviceRole.HOST) {
-            updateState(previous -> previous.withMessage("Only host controls synchronized playback in this MVP"));
+            updateState(previous -> previous.withMessage("Host has not allowed room control"));
             return;
         }
         if (state.currentTrack() == null) {
@@ -349,6 +353,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     public synchronized void nextTrack() {
+        if (state.role() == DeviceRole.CLIENT && state.canControlRoom()) {
+            transport.send(PeerMessage.playbackRequest(MessageType.NEXT_TRACK_REQUEST, 0L));
+            return;
+        }
         if (state.role() != DeviceRole.HOST || state.currentTrackIndex() + 1 >= state.playlist().size()) {
             return;
         }
@@ -358,6 +366,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     public synchronized void backTrack() {
+        if (state.role() == DeviceRole.CLIENT && state.canControlRoom()) {
+            transport.send(PeerMessage.playbackRequest(MessageType.BACK_TRACK_REQUEST, 0L));
+            return;
+        }
         if (state.role() != DeviceRole.HOST || state.currentTrackIndex() == 0) {
             return;
         }
@@ -411,6 +423,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     public synchronized void pause() {
+        if (state.role() == DeviceRole.CLIENT && state.canControlRoom()) {
+            transport.send(PeerMessage.playbackRequest(MessageType.PAUSE_REQUEST, 0L));
+            return;
+        }
         if (state.role() != DeviceRole.HOST) {
             return;
         }
@@ -430,6 +446,10 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     public synchronized void seek(long positionMillis) {
+        if (state.role() == DeviceRole.CLIENT && state.canControlRoom()) {
+            transport.send(PeerMessage.playbackRequest(MessageType.SEEK_REQUEST, positionMillis));
+            return;
+        }
         if (state.role() != DeviceRole.HOST || !localReady) {
             return;
         }
@@ -482,14 +502,14 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         onPeerDisconnected(peerId);
     }
 
-    public synchronized void setPeerPlaylistEditing(String peerId, boolean allowed) {
+    public synchronized void setPeerRoomControl(String peerId, boolean allowed) {
         if (state.role() != DeviceRole.HOST || peerId == null || !state.connectedPeerIds().contains(peerId)) return;
         updateState(previous -> previous
-            .withEditablePeers(allowed
-                ? addPeer(previous.editablePeerIds(), peerId)
-                : removePeer(previous.editablePeerIds(), peerId))
-            .withMessage((allowed ? "Playlist editing allowed for " : "Playlist editing removed from ") + peerId));
-        transport.sendToPeer(peerId, PeerMessage.playlistEditPermission(allowed));
+            .withControllerPeers(allowed
+                ? addPeer(previous.controllerPeerIds(), peerId)
+                : removePeer(previous.controllerPeerIds(), peerId))
+            .withMessage((allowed ? "Room control allowed for " : "Room control removed from ") + peerId));
+        transport.sendToPeer(peerId, PeerMessage.roomControlPermission(allowed));
     }
 
     public synchronized void setLocalVolumePercent(int volumePercent) {
@@ -576,7 +596,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
 
         if (state.role() == DeviceRole.HOST && hostConfig != null) {
             sendPlaylistToPeer(peerId);
-            transport.sendToPeer(peerId, PeerMessage.playlistEditPermission(false));
+            transport.sendToPeer(peerId, PeerMessage.roomControlPermission(false));
             if (resume) play();
         }
 
@@ -600,7 +620,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
                 List<String> peers = removePeer(previous.connectedPeerIds(), peerId);
                 return previous
                     .withConnectedPeers(peers)
-                    .withEditablePeers(removePeer(previous.editablePeerIds(), peerId))
+                    .withControllerPeers(removePeer(previous.controllerPeerIds(), peerId))
                     .withConnectionStatus(peers.isEmpty() ? ConnectionStatus.HOSTING : ConnectionStatus.CONNECTED)
                     .withMessage("Peer disconnected: " + peerId);
             });
@@ -610,7 +630,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             updateState(previous -> previous
                 .withConnectionStatus(ConnectionStatus.DISCONNECTED)
                 .withPlaybackStatus(PlaybackStatus.STOPPED)
-                .withCanEditPlaylist(false)
+                .withCanControlRoom(false)
                 .withMessage("Disconnected from host")
             );
         }
@@ -630,19 +650,24 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
             }
             if (state.role() == DeviceRole.HOST && !state.connectedPeerIds().contains(peerId)) return;
 
-            if (isPlaylistEditRequest(message.type()) && !state.editablePeerIds().contains(peerId)) {
+            if (requiresRoomControl(message.type()) && !state.controllerPeerIds().contains(peerId)) {
                 return;
             }
 
             switch (message.type()) {
-                case PLAYLIST_EDIT_PERMISSION -> updateState(previous -> previous
-                    .withCanEditPlaylist(message.canEditPlaylist())
-                    .withMessage(message.canEditPlaylist() ? "Playlist editing allowed" : "Playlist editing removed"));
+                case ROOM_CONTROL_PERMISSION -> updateState(previous -> previous
+                    .withCanControlRoom(message.canControlRoom())
+                    .withMessage(message.canControlRoom() ? "Room control allowed" : "Room control removed"));
                 case PLAYLIST_ADD_REQUEST -> addTrackUrl(message.trackName());
                 case PLAYLIST_REMOVE_REQUEST -> editTrackById(message.mediaUri(), index -> removeTrackAt(index));
                 case PLAYLIST_MOVE_REQUEST -> editTrackById(message.mediaUri(), index -> moveTrack(index, message.currentTrackIndex()));
                 case PLAYLIST_RENAME_REQUEST -> editTrackById(message.mediaUri(), index -> renameTrack(index, message.trackName()));
                 case PLAYLIST_SELECT_REQUEST -> editTrackById(message.mediaUri(), index -> selectTrack(index));
+                case PLAY_REQUEST -> play();
+                case PAUSE_REQUEST -> pause();
+                case SEEK_REQUEST -> seek(message.positionMillis());
+                case NEXT_TRACK_REQUEST -> nextTrack();
+                case BACK_TRACK_REQUEST -> backTrack();
                 case PLAYLIST_UPDATED -> applyRemotePlaylist(message);
                 case TRACK_SELECTED -> loadRemoteTrack(message);
                 case PLAY_AT -> {
@@ -767,7 +792,7 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
     }
 
     private void sendTrackEditRequest(MessageType type, int trackIndex, String value, int toIndex) {
-        if (!state.canEditPlaylist()) {
+        if (!state.canControlRoom()) {
             updateState(previous -> previous.withMessage("Host has not allowed playlist editing"));
             return;
         }
@@ -788,6 +813,12 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         return type == MessageType.PLAYLIST_ADD_REQUEST || type == MessageType.PLAYLIST_REMOVE_REQUEST
             || type == MessageType.PLAYLIST_MOVE_REQUEST || type == MessageType.PLAYLIST_RENAME_REQUEST
             || type == MessageType.PLAYLIST_SELECT_REQUEST;
+    }
+
+    private boolean requiresRoomControl(MessageType type) {
+        return isPlaylistEditRequest(type) || type == MessageType.PLAY_REQUEST
+            || type == MessageType.PAUSE_REQUEST || type == MessageType.SEEK_REQUEST
+            || type == MessageType.NEXT_TRACK_REQUEST || type == MessageType.BACK_TRACK_REQUEST;
     }
 
     private List<PlaylistTrack> safeRemotePlaylist(List<PlaylistTrack> playlist) {
@@ -846,9 +877,9 @@ public final class ListeningSessionService implements PeerTransportListener, Aud
         return switch (role) {
             case HOST -> type == MessageType.TIME_SYNC_REQUEST
                 || type == MessageType.TRACK_READY || type == MessageType.TRACK_FAILED
-                || isPlaylistEditRequest(type);
+                || requiresRoomControl(type);
             case CLIENT -> type == MessageType.PLAYLIST_UPDATED
-                || type == MessageType.PLAYLIST_EDIT_PERMISSION
+                || type == MessageType.ROOM_CONTROL_PERMISSION
                 || type == MessageType.TRACK_SELECTED
                 || type == MessageType.PLAY_AT
                 || type == MessageType.PAUSE

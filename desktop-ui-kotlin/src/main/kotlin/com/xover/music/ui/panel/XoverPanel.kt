@@ -21,10 +21,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.xover.music.domain.DeviceRole
 import com.xover.music.domain.LikedTrack
 import com.xover.music.domain.PlaybackStatus
 import com.xover.music.domain.SessionViewState
+import com.xover.music.application.version.RemoteVersions
 import java.awt.Window as AwtWindow
 
 @Composable
@@ -32,6 +32,10 @@ internal fun XoverPanel(
     state: SessionViewState,
     awtWindow: AwtWindow,
     settings: UiSettings,
+    remoteVersions: RemoteVersions? = null,
+    versionStatus: String = "",
+    versionLoading: Boolean = false,
+    onRefreshVersions: () -> Unit = {},
     onSettingsChange: (UiSettings) -> Unit,
     selectedTab: XoverTab,
     onTabSelected: (XoverTab) -> Unit,
@@ -53,7 +57,7 @@ internal fun XoverPanel(
     onLocalVolumeChange: (Int) -> Unit,
     onDisconnect: () -> Unit,
     onDisconnectPeer: (String) -> Unit,
-    onSetPeerPlaylistEditing: (String, Boolean) -> Unit = { _, _ -> },
+    onSetPeerRoomControl: (String, Boolean) -> Unit = { _, _ -> },
     likedTracks: List<LikedTrack> = emptyList(),
     likesEnabled: Boolean = false,
     likesLoading: Boolean = false,
@@ -131,7 +135,7 @@ internal fun XoverPanel(
 
                     XoverTab.LIKED -> LikedTracksTab(
                         tracks = likedTracks,
-                        canAdd = state.canEditPlaylist(),
+                        canAdd = state.canControlRoom(),
                         likesEnabled = likesEnabled,
                         loading = likesLoading,
                         failed = likesFailed,
@@ -143,18 +147,22 @@ internal fun XoverPanel(
                     XoverTab.STATUS -> StatusTab(
                         state = state,
                         onDisconnectPeer = onDisconnectPeer,
-                        onSetPeerPlaylistEditing = onSetPeerPlaylistEditing,
+                        onSetPeerRoomControl = onSetPeerRoomControl,
                     )
 
                     XoverTab.MORE -> MoreTab(
                         state = state,
+                        remoteVersions = remoteVersions,
+                        versionStatus = versionStatus,
+                        versionLoading = versionLoading,
+                        onRefreshVersions = onRefreshVersions,
                         pinned = settings.pinned,
                         opacity = settings.opacity,
                         onPinnedChange = { onSettingsChange(settings.copy(pinned = it)) },
                         onOpacityChange = { onSettingsChange(settings.copy(opacity = it)) },
                         onDisconnect = onDisconnect,
                         onDisconnectPeer = onDisconnectPeer,
-                        onSetPeerPlaylistEditing = onSetPeerPlaylistEditing,
+                        onSetPeerRoomControl = onSetPeerRoomControl,
                         onCollapse = onCollapse,
                         onMinimize = onMinimize,
                     )
@@ -187,7 +195,7 @@ internal fun CollapsedRail(
     onMute: () -> Unit,
     dockedEdges: DockedEdges = DockedEdges(),
 ) {
-    val host = state.role() == DeviceRole.HOST
+    val canControl = state.canControlRoom()
     val hasTrack = state.currentTrack() != null
     val playing = state.playbackStatus() in setOf(PlaybackStatus.PLAYING, PlaybackStatus.WAITING)
     val leftInset by animateDpAsState(if (dockedEdges.left) 0.dp else 8.dp, gentleMotion(), label = "dockLeftInset")
@@ -238,12 +246,12 @@ internal fun CollapsedRail(
                 PrimaryButton(
                     if (playing) "Pause" else "Play", onPlayPause,
                     modifier = Modifier.weight(1f),
-                    enabled = host && hasTrack && state.playbackStatus() != PlaybackStatus.ERROR,
+                    enabled = canControl && hasTrack && state.playbackStatus() != PlaybackStatus.ERROR,
                 )
-                SoftButton("Back", onBack, modifier = Modifier.weight(1f), enabled = host && hasTrack)
+                SoftButton("Back", onBack, modifier = Modifier.weight(1f), enabled = canControl && hasTrack)
                 SoftButton(
                     "Next", onNext, modifier = Modifier.weight(1f),
-                    enabled = host && state.currentTrackIndex() < state.playlist().lastIndex,
+                    enabled = canControl && state.currentTrackIndex() < state.playlist().lastIndex,
                 )
                 SoftButton(
                     if (state.localVolumePercent() == 0) "Unmute" else "Mute", onMute,
